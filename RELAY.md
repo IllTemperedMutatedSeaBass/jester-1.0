@@ -31,3 +31,12 @@ creation (a MANUAL STEP, see `jesterai/RELAY.md`).
 This is disclosed rather than papered over: this RELAY.md entry exists
 only in the local working tree at commit time and will need to be pushed,
 along with everything else in this repo, once the remote exists.
+
+### Proof-of-push addendum (remote wired)
+
+The `origin` remote has now been wired to
+`git@github.com:IllTemperedMutatedSeaBass/jester-1.0.git`, and `main` has
+been pushed successfully with upstream tracking set. Commit
+36d3bfc9e157a2cbf715bae82b410ed3352e67bc is on origin/main. This hash was
+read from origin after an independent `git fetch origin`, checking the
+`origin/main` ref.
