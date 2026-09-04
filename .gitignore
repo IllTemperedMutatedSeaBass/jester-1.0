@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+
+# Secrets
+.env
+
+# Audio artefacts
+*.wav
+*.mp3
+*.onnx
+voices*.bin
+
+# Model weights
+models/

@@ -1,0 +1,5 @@
+[project]
+name = "c3_router"
+version = "0.0.0"
+requires-python = ">=3.12"
+description = "Interjection router: decides whether and when to interject, with hand-up-then-speak etiquette."
