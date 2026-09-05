@@ -325,3 +325,40 @@ here:** no BIOS change was made, attempted, or proposed by this session.
 
 This entry is an append; no prior entry above is edited, per the append-only rule for
 this file.
+
+## 2026-09-05 — Thread 1.0.7: live carve reading still 2 GiB; operator's 24 GiB claim not reflected live
+
+### DR-022 — LIVE UMA CARVE STILL 2 GiB; NEITHER THE DOCUMENTED 16 GiB NOR THE OPERATOR-STATED 24 GiB; FLAGGED, NOT ACTED ON (2026-09-05)
+
+Thread 1.0.7 was told to read the live carve fresh (not reuse DR-021's
+figure) because the operator now states the BIOS is set to 24 GiB, and to
+report all three numbers alongside the Bar B record. Bar A item 5 did not
+run to completion this session (see RELAY.md STOP report), so there is no
+Bar B record to attach this to; it is recorded here instead.
+
+**The three figures:**
+- Documented (`jesterai/box/HARDWARE.md` §2, "16 GiB (INTERIM)"): 16 GiB.
+- Operator-stated, this session: 24 GiB.
+- Live, read this session: `cat /sys/class/drm/card0/device/mem_info_vram_total`
+  → `2147483648` bytes = **2 GiB** — identical to DR-021's reading from
+  thread 1.0.6, taken on the same uninterrupted boot (`uptime -s` still
+  shows 2026-09-04 ~16:02 this session; no reboot has occurred between
+  DR-021 and this entry).
+
+**Reading.** The live figure has not moved since DR-021, across a change
+in operator's stated BIOS value from (implicitly) 16 GiB to 24 GiB. Since
+BIOS UMA carve changes require a reboot to take effect and this box has
+not rebooted, an unchanged live reading following a stated BIOS change is
+the expected result, not a new anomaly — it is consistent with DR-021's
+prior finding that this box's `mem_info_vram_total` does not reflect the
+BIOS carve setting without an intervening reboot regardless of which
+value is set. This does not resolve DR-021; it is additional evidence for
+the same open question.
+
+**NOT resolved here:** what the BIOS is actually set to, or why a reboot
+has not been taken. **NOT acted on here:** no BIOS change or reboot was
+made, attempted, or proposed by this session, per the standing
+instruction that the carve is not to be touched.
+
+This entry is an append; no prior entry above is edited, per the append-only rule for
+this file.

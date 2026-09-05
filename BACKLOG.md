@@ -17,25 +17,33 @@
     measured against is UNPROVEN — DR-020 records this as an
     identity-unverified comparison, not settled.
 
-- **RUN BAR B MEASUREMENT — next action, blocked on two items:**
-  1. `libportaudio2` (the system shared library `sounddevice` needs) is
-     NOT installed on this box — `import sounddevice` raises `OSError:
-     PortAudio library not found`. This blocks C1 (mic capture) and C5
-     (playback) from running at all. Needs `sudo apt install
-     libportaudio2` — not attempted this session (no sudo authorised;
-     brief said report and stop rather than install un-authorised
-     things).
-  2. DR-021: the live UMA carve read via
-     `/sys/class/drm/card0/device/mem_info_vram_total` is currently
-     **2 GiB**, not the documented "16 GiB current" — confirm what the
-     BIOS is actually set to (and restore the intended value if 2 GiB
-     was a leftover from the BIOS ladder exploration) before trusting
-     Bar B's carve figure.
-  - Needs the operator on the headset regardless (VAD/mic can't be
-    scripted from this session). Also needs the external-recorder click
-    calibration run (Bar B) — hook exists
-    (`c5_orchestrator.bar_b_harness.run_calibration_click_hook`), not
-    automated, not attempted.
+- **RUN BAR B MEASUREMENT — next action, now blocked on one item (thread
+  1.0.7):**
+  1. `libportaudio2` is now installed (confirmed this session); C1 starts
+     cleanly. This blocker from 1.0.6 is CLOSED.
+  2. DR-021/DR-022: the live UMA carve is still **2 GiB**, unchanged
+     across DR-021 (thread 1.0.6) and this session, despite the operator
+     now stating the BIOS is set to 24 GiB — the box has not rebooted
+     since 2026-09-04 ~16:02, across both readings. Confirm what the BIOS
+     is actually set to and reboot before trusting Bar B's carve figure.
+  - **Live blocker, confirmed this session:** `ops/run_d0.sh` ran
+    end-to-end (all three services started healthy) but turn 1 timed out
+    inside C1's `/transcribe` — it blocks on the mic until an
+    energy-based VAD detects speech-then-silence, and no live speech was
+    present (bonded CX 6.00BT headset would not reconnect —
+    `br-connection-page-timeout`, PipeWire fell back to onboard analog
+    with no one speaking into it). Bar A item 5 needs a human physically
+    on a working mic for the ten-turn run; it cannot be scripted from an
+    unattended session regardless of which audio device is active. Also
+    needs the external-recorder click calibration run (Bar B) — hook
+    exists (`c5_orchestrator.bar_b_harness.run_calibration_click_hook`),
+    not automated, not attempted.
+  - **New, separate finding:** the CX 6.00BT headset itself would not
+    reconnect this session (`br-connection-page-timeout` on repeated
+    `bluetoothctl connect`, adapter powered, device not found on a scan)
+    — device is most likely off or out of range. Needs the operator to
+    check the headset's power state before the next attempt; this is not
+    a reboot-required condition so the operator was not paged for one.
 
 - **Two carried G1 constraints (DR-013), both binding on C2's design:**
   - Retrieved evidence must be appended AFTER the rolling transcript, never

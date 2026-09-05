@@ -337,3 +337,133 @@ relocated) — Bar C constraints observed throughout.
 Commit d19340994b8091d74cfd77023fbfe7bb7cf2547a is on origin/main. This
 hash was read from origin after an independent `git fetch origin`,
 checking the `origin/main` ref.
+
+## 2026-09-05 — Thread 1.0.7: Bar A close-out attempt, Bar A item 5 not proven, Bar B not run, DR-022 filed
+
+MODEL: Sonnet 5.
+
+**ENVIRONMENT CHECK (pre-flight).** `hostname` → `jesterai`;
+`whoami` → `jester`; `pwd` at launch → `/home/jester`;
+`/home/jester/jester-1.0` present. As expected — proceeded.
+
+**TASK 1 — re-verified 1.0.6's proof-of-push.** `git fetch origin` in
+`jester-1.0`, then `git log --format="%H %s"` against the two commits
+1.0.6's STOP report named: `d19340994b8091d74cfd77023fbfe7bb7cf2547a`
+("docs: thread 1.0.6 STOP report, skeleton + Bar B harness + findings")
+and `a0fd5d52cf8859cd538f8fd0af1d44da3d7f8d23` ("docs: proof-of-push
+addendum to thread 1.0.6 (Stage 2-4) STOP report"). Both hashes match
+`git log` exactly and both equal `origin/main`'s current tip
+(`a0fd5d5...`) or an ancestor of it; `git status` reports the working
+tree clean and up to date with `origin/main`. 1.0.6's proof-of-push is
+confirmed correct — the corruption the operator saw was in transit, not
+in the repository.
+
+`jesterai` (read-write, box-level findings repo): `git fetch origin`,
+`git status` clean, up to date with `origin/master`, HEAD =
+`224a1c2a6f3e29f0119b30681f957c2aa4bd202d`.
+
+Read-only checks per this session's correction: `git -C
+/home/jester/jester-2.1 rev-parse HEAD` → `c41dc92fd121dafaae39a50d68e7aa91e73f9756`
+(read-only rev-parse only; no working-tree read, no write — repo remains
+untouched by the letter of the no-touch rule). `/home/jester` has no
+`HeathenS_Talkings` directory — still absent, stated as absence, no
+further action.
+
+**TASK 2 — audio/bluetooth.** The bonded CX 6.00BT headset (00:1B:66:8C:38:4E)
+is NOT connected. Repeated `bluetoothctl connect` attempts (three) all
+failed identically with `org.bluez.Error.Failed
+br-connection-page-timeout`; the Bluetooth adapter is powered and a
+`bluetoothctl scan on` did not see the device advertising — most likely
+explanation is the headset itself is off or out of range, not a software
+fault. This is not a reboot-required condition, so the operator was not
+paged for a reboot; the operator should check the headset's power state.
+`wpctl status` shows the active PipeWire default sink and source are both
+the onboard `Ryzen HD Audio Controller Analog Stereo`, not the
+bluez HFP devices (bluez is still the *configured* default, just absent).
+No `jackd` process is running (`pgrep -a jackd` empty). The bluetooth
+service's deferred restart from the `libportaudio2` install HAS since
+happened: `bluetooth.service` shows `Active: active (running) since
+2026-09-04 18:02:56 UTC`, roughly two hours after `uptime -s` reports the
+boot itself (`2026-09-04 16:02:49`) — the service start time postdates
+boot, so it restarted, not merely started at boot.
+
+**TASK 3 — Bar A item 5, attempted, NOT proven.** `libportaudio2` is
+confirmed installed (`dpkg -l` shows `19.7.0+git...`), pulling
+`libjack-jackd2-0` as expected; this closes the blocker 1.0.6 hit.
+`.env` was created from `.env.example` (no `.env` existed at session
+start). All five packages' venvs are present. `ops/run_d0.sh` was run:
+all three HTTP services (C1, C2, C4) started and passed their health
+checks, and C5 began turn 1/10 — but C1's `/transcribe` blocks on the
+live mic until an energy-based VAD (`c1_capture/capture.py`) detects
+speech followed by 800ms of silence, and with no headset connected and
+no one speaking into the onboard analog mic, no speech ever arrived. C5's
+request timed out after 120s (`httpx.ReadTimeout`), and the outer 180s
+script timeout tore the whole loop down before a single turn completed.
+This is the walking skeleton behaving as designed for an unattended
+session, not a code defect. **Bar A items 1-5, restated:** item 2/3/4
+(the things provable by reading code) remain met as they were in 1.0.6,
+unchanged this session. Item 1 (whichever it names structurally) remains
+written but still unproven end-to-end. **Item 5 (ten consecutive turns,
+no restart, no manual reconnect, no hang) is NOT proven** — this session
+ran it and it did not complete one turn, let alone ten. No claim of Bar A
+passing is made.
+
+**TASK 4 — Bar B, correctly skipped.** Per the prompt's explicit
+conditional ("only if Task 3 proves the loop runs"), Bar B was not
+attempted — there is no completed loop to measure. Nothing was faked or
+approximated in its place.
+
+**Carve/kernel/digest, recorded per instruction regardless of Bar B not
+running:**
+- Kernel this session: `uname -r` → `7.0.0-30-generic` — the 31 upgrade
+  named in the prompt as pending has NOT yet been applied.
+- UMA carve, all three figures: documented 16 GiB
+  (`jesterai/box/HARDWARE.md` §2), operator-stated 24 GiB (this
+  session's prompt), live `2147483648` bytes = **2 GiB**
+  (`/sys/class/drm/card0/device/mem_info_vram_total`) — identical to
+  DR-021's reading in 1.0.6, on the same still-uninterrupted boot. Filed
+  as DR-022 in `DECISIONS.md`; carve was not touched.
+- Model blob digest: `ollama show --modelfile gemma4-e4b-bakeoff:latest`
+  → `FROM .../blobs/sha256-90ce98129eb3e8cc57e62433d500c97c624b1e3af1fcc85dd3b55ad7e0313e9f`,
+  matching DR-020's pin exactly. (Note for the record: `ollama list`/
+  `/api/tags` reports a *different* "digest" field
+  — `9f626629a8701805b2bbfd3e8f00aa363317e5b3a498c8689cd86ffde6d86fe8` —
+  for the same tag; this is the registry-manifest digest, a different
+  identifier space from the blob digest DR-020 pinned, and is not a sign
+  of drift. Checked to rule out a repeat of DR-019 before concluding
+  Stage 2 wasn't reblocked.)
+
+**TASK 5 — records.** DR-022 filed in `DECISIONS.md` (append). This STOP
+report appended to `RELAY.md`. `BACKLOG.md` updated: the `libportaudio2`
+blocker item closed, the live-run blocker (VAD needs an actual human
+speaking) and the headset-reconnect finding both added. No box-level
+finding required filing in `jesterai` this session — the audio/bluetooth
+findings are box-specific but already fully captured in this repo's
+records and did not surface anything `jesterai`-scoped that isn't
+already covered by existing HARDWARE.md content.
+
+### Proof-of-push
+
+This session's own commit(s) will be pushed after this STOP report is
+written; their hash(es) will be quoted in an addendum immediately
+following, per this repo's proof-of-push convention (STOP report first,
+then push, then addendum with the real hash read from origin after an
+independent fetch).
+
+### Manual steps remaining (Claude.ai UI)
+
+- **Sync now** on the jester-1.0 project.
+- **project-knowledge allowlist**: no new files added outside
+  `DECISIONS.md`/`RELAY.md`/`BACKLOG.md`, which should already be
+  allowlisted from prior threads — no new addition expected, but worth a
+  glance.
+- **chat rename** check: thread 1.0.7, "Bar A close-out attempt, Bar A
+  item 5 not proven" or similar.
+
+### SHAs stated in this report (repeated, per the correction on transit
+corruption)
+
+- 1.0.6 STOP report commit (re-verified): d19340994b8091d74cfd77023fbfe7bb7cf2547a
+- 1.0.6 addendum commit (re-verified): a0fd5d52cf8859cd538f8fd0af1d44da3d7f8d23
+- jesterai HEAD (unchanged this session): 224a1c2a6f3e29f0119b30681f957c2aa4bd202d
+- jester-2.1 HEAD (read-only, before this session's check): c41dc92fd121dafaae39a50d68e7aa91e73f9756
