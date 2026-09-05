@@ -106,3 +106,58 @@ session.
 Commit 01c10160aecedbc295422c9c2d43bf0e9dc93d57 is on origin/main. This
 hash was read from origin after an independent `git fetch origin`,
 checking the `origin/main` ref.
+
+## 2026-09-05 — Thread 1.0.6 (Phase 1 recon + blocked at Stage 2): model-tag mismatch
+
+MODEL: Sonnet 5, thinking on — operator-declared, echoed verbatim as an
+operator claim, not independently verified.
+
+**MACHINE.** Launched from `/home/jester` per the prompt. `hostname`
+confirmed `jesterai`. `git fetch origin` + `git pull` run before any edit;
+this repo was at `80d02c643828338e79094a71378aa84b16a727f5` on
+`origin/main`, matching, working tree clean — no divergence.
+
+**TWO-PHASE STRUCTURE.** Phase 1 was read-only recon, reported in full to
+the operator and held for a "GO PHASE 2" confirmation, which was given.
+Phase 2 began in stage order (Stage 1 — carve correction in `jesterai`;
+Stage 2 — skeleton code in `jester-1.0`). Stage 1 completed in full (see
+`jesterai/RELAY.md` this date). Stage 2 is **BLOCKED before any code was
+written**, on the operator's own ruling 1: `ollama show
+gemma4-e4b-bakeoff:latest` was required before pinning `OLLAMA_MODEL`, and
+it resolved to Gemma 4 architecture (7.5B params), not Gemma 3n E4B. Per
+the ruling, no substitute tag was picked; DR-019 (below) records the
+finding and this session stops here to report rather than guess.
+
+**FILES CHANGED THIS SESSION.**
+
+- `DECISIONS.md` — **appended**: DR-019, "gemma4:e4b" never existed on this
+  box; true anchor identity recorded" — the `ollama show`/`api/show` output
+  for the closest-matching tag, and the explicit statement that
+  `OLLAMA_MODEL` is not pinned by this session. No prior entry edited.
+- `RELAY.md` — **appended**: this entry.
+- No application code was written this session. Stage 2 (skeleton code)
+  and Stage 3 (Bar B harness) have not started.
+
+**WHY THIS SESSION STOPS HERE.** The operator's ruling was explicit:
+"[i]f it does not [resolve to Gemma 3n E4B], stop and report — do not pick
+another tag," citing G3(b)'s mis-specified-anchor failure as the precedent
+not to repeat. Building C2 against a guessed model tag would be exactly
+that repeat. The rest of the skeleton (C1, C3, C4, C5) does not strictly
+require this decision, but Stage 2 as briefed treats the model pin as part
+of one coherent build stage, and starting it in a half-configured state
+risks the same class of silent-guess error the ruling exists to prevent.
+Awaiting the operator's decision on which tag (if any) is the correct
+`OLLAMA_MODEL` before resuming Stage 2.
+
+**UNTOUCHED-REPO PROOF, `jester-2.1`.** Not read, written, or subject to
+any git command this session. HEAD was not recorded at session start
+(out of scope per the prompt: "Not to be touched, read, or subject to any
+git command") — no before/after comparison is offered because none was
+taken, consistent with never having run `git` against it.
+
+**HeathenS_Talkings.** Confirmed absent from this box again this session
+(`find /home/jester -maxdepth 2 -iname "*heathen*"` returned nothing,
+both before and after this session's edits) — nothing to touch, nothing
+changed.
+
+### Proof-of-push

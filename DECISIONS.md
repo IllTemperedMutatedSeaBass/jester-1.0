@@ -134,3 +134,49 @@ ALSO NOTED, NOT ADOPTED: HeathenS also ships an STT module built on
 faster-whisper. C1 stays on faster-whisper called directly for D0.
 Consolidating C1 onto HeathenS is a legitimate later question and is
 explicitly out of D0 scope.
+
+## 2026-09-05 — Thread 1.0.6: model-tag mismatch found before build
+
+### DR-019 — "gemma4:e4b" NEVER EXISTED ON THIS BOX; TRUE ANCHOR IDENTITY RECORDED (2026-09-05)
+
+Every measured anchor on record — G1's prefix-reuse figures, G3's whisper
+concurrency runs, the 10.5 s/106-record 2.x end-to-end cycle cited by
+DR-006 and SEED §6 — names the model as "gemma4:e4b". Checking
+`ollama list` on this box at the start of thread 1.0.6 found **no tag with
+that exact name**. This is filed as a finding, not silently corrected,
+because a mis-specified anchor is exactly G3(b)'s failure mode (DR-013)
+and guessing a replacement would repeat it rather than avoid it.
+
+**Tags actually present:** `gemma4:26b`, `nomic-embed-text:latest`,
+`jester-gen:latest`, `gemma4-e4b-bakeoff:latest`. The last is the closest
+name match and was checked with `ollama show gemma4-e4b-bakeoff:latest`
+and `/api/show`:
+
+- architecture: `gemma4` (i.e. the "Gemma 4" family, NOT "Gemma 3n" —
+  these are different model generations; `gemma4-e4b-bakeoff:latest` is
+  **not** a Gemma 3n E4B elastic model despite the "e4b" substring in its
+  tag)
+- parameter count: 7,518,069,290 (~7.5B), `size_label` "7.5B"
+- quantization: Q4_K_M
+- context length: 131072 (num_ctx pinned to 8192 in the Modelfile)
+- license: `apache-2.0`, linked to the Gemma 4 license
+- blob digest: `sha256-90ce98129eb3e8cc57e62433d500c97c624b1e3af1fcc85dd3b55ad7e0313e9f`
+
+**This does not resolve to Gemma 3n E4B.** Per the standing instruction
+that governed this check, no substitute tag is picked in its place.
+**OLLAMA_MODEL is NOT pinned by this session.** Whether the historical
+"gemma4:e4b" anchors (G1, G3, DR-006's 10.5 s cycle) were in fact measured
+against this same `gemma4-e4b-bakeoff:latest` blob under an since-renamed
+or since-retagged alias, or against a genuinely different model that no
+longer exists on this box, is UNRESOLVED and is not this session's call —
+it requires the operator's own record of what was pulled/tagged at the
+time, which this session has no access to.
+
+BINDING ON ALL FUTURE RECORDS: cite the model tag exactly as it exists on
+the box at measurement time (`ollama list` / `ollama show`), never a
+remembered or assumed short name. If a tag is retagged or re-pulled,
+the record citing it becomes stale and must say so rather than silently
+continuing to resolve.
+
+This entry is an append; no prior entry above is edited, per the append-only rule for
+this file.
