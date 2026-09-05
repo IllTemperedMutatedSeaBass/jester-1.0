@@ -613,3 +613,12 @@ proof-of-push convention.
 - jesterai HEAD (unchanged this session): 224a1c2a6f3e29f0119b30681f957c2aa4bd202d
 - jester-2.1 HEAD (read-only, before and after this session, unchanged):
   c41dc92fd121dafaae39a50d68e7aa91e73f9756
+
+### Proof-of-push addendum (this session's own commit)
+
+Commit 7a1b4177914b4e513c1470f1ab0adc76dd7a6782 is on origin/main. This
+hash was read from origin after an independent `git fetch origin`,
+checking the `origin/main` ref, following the `git push origin main`
+that landed this STOP report and the DECISIONS.md/BACKLOG.md updates.
+
+- This session's commit SHA (repeated): 7a1b4177914b4e513c1470f1ab0adc76dd7a6782
