@@ -161,3 +161,7 @@ both before and after this session's edits) — nothing to touch, nothing
 changed.
 
 ### Proof-of-push
+
+Commit fc7017ef929b6e7e880c9dbe8ca5b5ffb058a478 is on origin/main. This
+hash was read from origin after an independent `git fetch origin`,
+checking the `origin/main` ref.
