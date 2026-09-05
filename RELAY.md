@@ -102,3 +102,7 @@ not touched — no read, write, or git operation against any of them this
 session.
 
 ### Proof-of-push
+
+Commit 01c10160aecedbc295422c9c2d43bf0e9dc93d57 is on origin/main. This
+hash was read from origin after an independent `git fetch origin`,
+checking the `origin/main` ref.
