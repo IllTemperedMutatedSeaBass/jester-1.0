@@ -17,36 +17,45 @@
     measured against is UNPROVEN — DR-020 records this as an
     identity-unverified comparison, not settled.
 
-- **RUN BAR B MEASUREMENT — next action, now blocked on DR-023 (thread
-  1.0.8):**
-  1. `libportaudio2` blocker (1.0.6): CLOSED, confirmed again this session.
-  2. Headset connectivity blocker (1.0.7): CLOSED this session — CX 6.00BT
-     connected, profile switched to `headset-head-unit` (HFP/mSBC,
-     confirmed via `pw-dump`: `api.bluez5.codec: msbc`), both bluez sink
-     and source were the active PipeWire defaults. C1 captured and
-     transcribed live speech (`asr_done`, `transcript_chars: 36`) —
-     the full capture path is proven working end-to-end for the first
-     time.
-  3. **NEW blocking item — DR-023:** with live audio working, turn 1
-     crashed one hop later. `c2_reason`'s raw-prompt call to
-     `/api/generate` returns an empty `response` string against this
-     model's `RENDERER gemma4`/`PARSER gemma4` Modelfile (confirmed via
-     direct `curl`, reproducible independent of live audio; `/api/chat`
-     against the same model does not exhibit this). C5 has no per-turn
-     error handling, so C4's resulting 500 (empty text to `kokoro_onnx`)
-     killed the whole ten-turn loop after turn 1. This needs an operator
-     ruling on whether `c2_reason` should move to `/api/chat` or a
-     templated raw prompt — DR-023 explicitly did not fix this, because
-     it may be in tension with the stable-prefix-plus-append caching
-     rationale (DR-013a).
-  4. DR-021/DR-022: live UMA carve read again this session — still
-     **2 GiB**, unchanged since DR-021 (thread 1.0.6), still on the same
-     uninterrupted boot, despite the operator's stated BIOS value moving
-     from ~16 GiB to 24 GiB in the interim. Confirm what the BIOS is
-     actually set to and reboot before trusting Bar B's carve figure.
+- **BAR A AND BAR B: BOTH RUN THIS SESSION (thread 1.0.9). Bar A item 5 is
+  PROVEN; Bar B has a measured figure that PASSES the kill-switch.**
+  1. `libportaudio2` blocker (1.0.6): CLOSED.
+  2. Headset connectivity + HFP/A2DP blocker (1.0.7/1.0.8): CLOSED and now
+     PERMANENT — `ops/ensure_hfp.sh` switches the CX 6.00BT off its
+     power-on-default A2DP onto `headset-head-unit` (HFP/mSBC) and
+     verifies `codec: msbc` via `pw-dump` before returning; `ops/run_d0.sh`
+     calls it automatically before starting any service, so no future
+     session repeats the manual `wpctl`/`pw-cli` steps.
+  3. DR-023's empty-response blocker: CLOSED by DR-024. `c2_reason` now
+     sends `/api/generate` with `raw: true` and a hand-rendered Gemma
+     turn (`c2_reason/prompt.py`, `c2_reason/ollama_client.py`) instead
+     of the pinned Modelfile's server-side `RENDERER gemma4` chat
+     renderer, which DR-024 measured putting the model into an unbounded
+     "thinking" mode that ate the whole 40-token cap on both
+     `/api/generate` and `/api/chat`. Both candidate paths preserved G1's
+     KV-cache prefix reuse (delta prefill ~0.55s against a 1.5s bar); the
+     empty-response symptom, not prefix reuse, was the deciding factor.
+  4. **NEW, found and fixed live this session:** C1 and C5 never shared a
+     `turn_id` — C1 minted its own per-request id that never matched C5's,
+     so the Bar B harness's per-turn log join always returned zero
+     complete turns even though every turn ran correctly. Fixed in
+     `c5_orchestrator/main.py`: C5 now adopts C1's returned `turn_id` as
+     the canonical id for the rest of the turn instead of using its own.
+  5. Ten-turn Bar A run (`ops/run_d0.sh`): **10/10 turns started and
+     completed, zero tracebacks across all four services, no manual
+     PipeWire/bluetoothctl touch after launch.** Bar A item 5 PROVEN.
+  6. Twenty-turn Bar B run (`ops/run_d0.sh --turns 20`, re-run once after
+     the turn_id fix so logs could actually be joined): T_ttfa median
+     **4.28 s**, p90 **5.84 s**, kill-switch (median > 8 s) did NOT fire.
+     Full stage decomposition, live carve, kernel, and model digest
+     recorded — see RELAY.md's thread-1.0.9 STOP report.
   - Still needs the external-recorder click calibration run (Bar B) —
     hook exists (`c5_orchestrator.bar_b_harness.run_calibration_click_hook`),
-    not automated, not attempted.
+    not automated, not attempted, per standing instruction (no confirmed
+    equipment).
+  - DR-021/DR-022/DR-025: live UMA carve settled at **2 GiB** across four
+    readings on the same uninterrupted boot, against documented 16 GiB
+    and the operator's stated 24 GiB. Not reconciled, not touched.
 
 - **Two carried G1 constraints (DR-013), both binding on C2's design:**
   - Retrieved evidence must be appended AFTER the rolling transcript, never

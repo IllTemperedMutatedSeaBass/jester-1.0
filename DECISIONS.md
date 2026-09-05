@@ -423,3 +423,117 @@ proving the loop runs.
 
 This entry is an append; no prior entry above is edited, per the append-only rule for
 this file.
+
+## 2026-09-05 — Thread 1.0.9: DR-023 settled — raw /api/generate with hand-rendered Gemma turn markers, `raw: true`
+
+### DR-024 — C2 MOVES TO `/api/generate` + `raw: true` WITH HAND-RENDERED GEMMA TURN MARKERS; `/api/chat` MEASURED AND REJECTED (both preserve prefix reuse; only one avoids the empty-response symptom) (2026-09-05)
+
+DR-023 left this open as a design question rather than a one-line fix. This
+entry settles it with a measured G1-style micro-check, per the operator's
+instruction, before choosing.
+
+**METHOD.** For each candidate path, two calls were issued against the
+live, pinned `gemma4-e4b-bakeoff:latest` (blob digest
+`sha256-90ce98129eb3e8cc57e62433d500c97c624b1e3af1fcc85dd3b55ad7e0313e9f`,
+per DR-020): call 1 against a ~5,000-token stable-prefix transcript (cold),
+call 2 against the same transcript with ~200 tokens appended at the end
+(the append point G1/DR-013a require). `num_ctx=8192`, `num_predict=40`
+(the pinned Bar B cap) throughout. Delta prefill is call 2's
+`prompt_eval_duration`; G1's bar is <1.5 s.
+
+**PATH (a) — `/api/generate`, `raw: true`, prompt hand-wrapped in
+`<start_of_turn>user\n...<end_of_turn>\n<start_of_turn>model\n`:**
+call 1 (cold, 5396 prompt tokens): `prompt_eval_duration` 8.864 s (cold
+prefill, as expected — not the figure the bar applies to). Call 2 (5639
+prompt tokens, +~200 appended): `prompt_eval_duration` **0.548 s** — PASSES
+the 1.5 s bar, cache hit confirmed. Response was non-empty on every call in
+this session testing this path (multiple independent invocations, both the
+short single-line micro-check in DR-023's own evidence and this session's
+5k-token version): e.g. `"Seems like we've covered quite a bit! Shall we
+summarize key takeaways or move onto action items?"`, `done_reason:
+"stop"`.
+
+**PATH (b) — `/api/chat`, one system + one user message, server-side
+templated:** call 1 (cold, 5384 prompt tokens): `prompt_eval_duration`
+1.982–8.294 s across repeated runs (cold prefill, load-time variable, not
+the bar figure). Call 2 (5627 prompt tokens, +~200 appended):
+`prompt_eval_duration` **0.538–0.577 s** — ALSO passes the 1.5 s bar,
+cache hit confirmed. **But `message.content` was empty on the 5k-token
+call** (`done_reason: "length"`, all 40 tokens consumed), with a populated
+`message.thinking` field visible in the full response body (`"Thinking
+Process:\n\n1. **Analyze the Request:**..."`, cut off mid-sentence by the
+cap). A smaller, single-line-transcript `/api/chat` call earlier in this
+investigation (no 5k-token filler) did return non-empty `content` within
+the same 40-token cap — the symptom is content/length-dependent, not a
+flat pass/fail on the endpoint itself.
+
+**READING.** Both paths preserve KV-cache prefix reuse — this is not what
+distinguishes them. The empty-response symptom DR-023 found is NOT
+specific to `/api/generate`: `/api/chat`'s server-side renderer
+(RENDERER/PARSER `gemma4` in the pinned Modelfile) puts the model into an
+unbounded "thinking" mode that can consume the entire 40-token cap before
+producing any final-channel content, and whether it does so is sensitive
+to prompt content/length in a way this session did not fully
+characterize. Hand-rendering the Gemma turn markers directly and sending
+with `raw: true` bypasses that renderer entirely — the model completes
+the turn directly, without entering the thinking scaffold, in every
+observed case.
+
+**CHOICE: Path (a).** `/api/generate` + `raw: true` + hand-rendered Gemma
+turn markers. Reasoning: it is the only path that reliably keeps output
+within the pinned 40-token cap across the content this session tested; a
+correct, fast prefill is worthless to Bar B if the field it prefills for
+comes back empty. `/api/chat`'s thinking-mode risk under load is not ruled
+out as content grows toward the real transcript lengths D0 will see.
+
+**DR-013a STILL HOLDS.** The Gemma turn-close markers
+(`<end_of_turn>\n<start_of_turn>model\n`) are appended as a fixed suffix
+AFTER the (evidence-extended, if any) rolling transcript, never before it
+— `c2_reason.prompt.PromptBuilder.build()` still appends evidence after
+the transcript and only then closes the turn. This is the same ordering
+G1 and DR-013a measured; nothing about the turn-wrapping changes it.
+
+**IMPLEMENTED.** `c2_reason/src/c2_reason/prompt.py`:
+`PromptBuilder.build()` now wraps the stable-prefix-plus-evidence body in
+`<start_of_turn>user\n...<end_of_turn>\n<start_of_turn>model\n`.
+`c2_reason/src/c2_reason/ollama_client.py`: `generate()` now sends
+`"raw": true` to `/api/generate`. No other files changed. No project
+tests existed for either module to run against this change (confirmed by
+search before editing).
+
+**NOT settled here:** the precise mechanism by which `/api/chat` enters
+thinking mode on longer content (no attempt was made to decode or
+suppress it via an Ollama-level "think" option, since path (a) sidesteps
+the question rather than needing an answer to it), and whether `raw: true`
+`/api/generate` could itself enter a similar mode on sufficiently long or
+different content than what this session's micro-check covered — that
+risk is carried forward, not closed, and Bar B's live 20-turn run (this
+same thread) is the next real test of it against actual conversational
+content rather than filler.
+
+This entry is an append; no prior entry above is edited, per the append-only rule for
+this file.
+
+### DR-025 — LIVE UMA CARVE SETTLED AT 2 GiB (DR-021's discovered-value principle; box/HARDWARE.md's 16 GiB and the operator's 24 GiB recollection are NOT corrected here) (2026-09-05)
+
+Read a fourth time this session (`cat
+/sys/class/drm/card0/device/mem_info_vram_total` → `2147483648` bytes = 2
+GiB), attached to this thread's live Bar B run. Three prior readings — DR-021
+(thread 1.0.6), thread 1.0.7, thread 1.0.8 — all read the identical value,
+all on the same uninterrupted boot (`uptime -s` → 2026-09-04 16:02:49,
+unchanged across all four readings). Per the operator's own framing this
+session, three (now four) consistent instrument readings against a
+recollection favour the instrument. **The live carve is 2 GiB, settled, per
+DR-021's discovered-value principle — not assumed, not corrected against
+documentation.**
+
+`box/HARDWARE.md`'s documented "16 GiB (INTERIM)" and the operator's stated
+24 GiB are NOT edited or reconciled here — this entry is scoped to what the
+live sysfs figure is, not to why it disagrees with either. Whether that
+disagreement is a stale BIOS setting never actually applied without a
+reboot (DR-022's reading), a driver/GTT artifact (DR-021's suspicion), or
+something else remains open and is not this session's business — the carve
+was not touched.
+
+This entry is an append; no prior entry above is edited, per the append-only rule for
+this file.

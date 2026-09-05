@@ -16,12 +16,18 @@ from .playback import play_wav_bytes
 
 
 def run_turn(config: Config, client: httpx.Client) -> None:
-    turn_id = str(uuid.uuid4())
-    log_event("C5", "turn_start", turn_id)
+    pre_turn_id = str(uuid.uuid4())
+    log_event("C5", "turn_start", pre_turn_id)
 
     transcribe_resp = client.post(f"{config.c1_base_url}/transcribe", timeout=120.0)
     transcribe_resp.raise_for_status()
     transcript_data = transcribe_resp.json()
+    # C1 mints its own turn_id (it has no way to receive one -- /transcribe
+    # takes no body). Adopt it as the canonical id for the rest of the turn
+    # so every stage's structured log lines join on the same turn_id (Bar B
+    # harness fix, thread 1.0.9 -- previously C5's own id never matched
+    # C1's, so decompose_turn() could never find a complete turn).
+    turn_id = transcript_data["turn_id"]
     log_event(
         "C5",
         "c1_response_received",

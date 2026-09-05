@@ -12,6 +12,18 @@ DR-013's two carried constraints, both enforced here:
 There is no retrieval yet at D0 (C3 is a stub, no interjection logic), so
 evidence is always empty here -- the append-after-transcript seam exists
 and is exercised by the signature, not by live content.
+
+Per DR-024, the stable prefix and any appended evidence are wrapped in a
+single hand-rendered Gemma user/model turn (`<start_of_turn>user\\n ...
+<end_of_turn>\\n<start_of_turn>model\\n`) and sent to Ollama's
+`/api/generate` with `raw: true` (see `ollama_client.generate`). This
+bypasses the pinned Modelfile's server-side chat renderer, which DR-024
+measured as putting the model into an unbounded "thinking" mode that
+consumes the entire token cap before any final content -- with the hand
+-rendered turn markers, the model responds directly instead. The closing
+markers are a fixed suffix after the (evidence-extended) transcript, so
+they do not change DR-013a's append-after-transcript ordering or the
+cached-prefix property G1 measured.
 """
 
 
@@ -23,6 +35,9 @@ STABLE_PREAMBLE = (
     "You are Jester, a meeting assistant. Respond briefly and naturally "
     "to the ongoing conversation below.\n\n"
 )
+
+_TURN_OPEN = "<start_of_turn>user\n"
+_TURN_CLOSE = "<end_of_turn>\n<start_of_turn>model\n"
 
 
 class PromptBuilder:
@@ -41,10 +56,12 @@ class PromptBuilder:
         return STABLE_PREAMBLE + "\n".join(self._transcript_lines)
 
     def build(self, evidence: str | None = None) -> str:
-        """Stable prefix first, evidence appended AFTER it (DR-013a)."""
-        prompt = self._stable_prefix()
+        """Stable prefix first, evidence appended AFTER it (DR-013a), the
+        whole turn wrapped for raw-mode `/api/generate` (DR-024)."""
+        body = self._stable_prefix()
         if evidence:
-            prompt = prompt + "\n\n[Evidence]\n" + evidence
+            body = body + "\n\n[Evidence]\n" + evidence
+        prompt = _TURN_OPEN + body + _TURN_CLOSE
 
         est_tokens = len(prompt) / self._chars_per_token_estimate
         if est_tokens >= self.num_ctx:

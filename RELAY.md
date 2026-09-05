@@ -622,3 +622,192 @@ checking the `origin/main` ref, following the `git push origin main`
 that landed this STOP report and the DECISIONS.md/BACKLOG.md updates.
 
 - This session's commit SHA (repeated): 7a1b4177914b4e513c1470f1ab0adc76dd7a6782
+
+## 2026-09-05 — Thread 1.0.9: DR-023 settled (DR-024), turn_id correlation bug found and fixed, Bar A item 5 PROVEN, Bar B PASSES kill-switch
+
+MODEL: Sonnet 5.
+
+**ENVIRONMENT CHECK.** `hostname` → `jesterai`; `whoami` → `jester`;
+`pwd` at launch → `/home/jester`; `/home/jester/jester-1.0` present. As
+expected — proceeded.
+
+**TASK 1 — clean/level confirmation, stray-process check.** `git fetch
+origin` in both repos. `jester-1.0`: clean, up to date with `origin/main`,
+HEAD = `3c561d05d493f5d85a88b7e8b21a269ecb56f822` — matches the prompt's
+carried state exactly. `jesterai`: clean, up to date with
+`origin/master`, HEAD = `224a1c2a6f3e29f0119b30681f957c2aa4bd202d`,
+unchanged. Read-only: `git -C /home/jester/jester-2.1 rev-parse HEAD`
+(before) = `c41dc92fd121dafaae39a50d68e7aa91e73f9756`, unchanged from
+1.0.8. `HeathenS_Talkings` still absent. `pgrep -af` for
+`run_d0.sh`/all four D0 components found nothing — 1.0.8's `trap cleanup
+EXIT` had already torn everything down; no stray process to kill.
+
+**THE CARVE (initial reading, before Task 2).** `cat
+/sys/class/drm/card0/device/mem_info_vram_total` → `2147483648` bytes =
+2 GiB, same uninterrupted boot (`uptime -s` → 2026-09-04 16:02:49) as
+every prior reading this thread. `uname -r` → `7.0.0-30-generic`,
+unchanged. This is the fourth consistent live reading; DR-025 (below)
+settles it plainly per DR-021's discovered-value principle, without
+correcting `box/HARDWARE.md` or reconciling the operator's 24 GiB
+recollection.
+
+**TASK 2 — DR-023 SETTLED (DR-024).** Ran a G1-style micro-check against
+the live, pinned `gemma4-e4b-bakeoff:latest` before choosing: two calls
+per candidate path, a ~5,000-token stable-prefix transcript then the same
+transcript with ~200 tokens appended, `num_ctx=8192`, `num_predict=40`
+throughout.
+
+Path (a) — `/api/generate`, `raw: true`, prompt hand-wrapped in
+`<start_of_turn>user\n...<end_of_turn>\n<start_of_turn>model\n`: delta
+prefill (call 2) **0.548 s**, well under the 1.5 s bar; response
+non-empty on every invocation tested.
+
+Path (b) — `/api/chat`, one system + one user message, server-side
+templated: delta prefill **0.538–0.577 s**, also under the bar — but
+`message.content` came back EMPTY on the 5k-token call (`done_reason:
+"length"`, all 40 tokens spent), with a populated `message.thinking`
+field visible in the full response body. A smaller single-line-transcript
+`/api/chat` call earlier in the investigation did return non-empty
+content within the same cap — the symptom is content/length-dependent.
+
+**Reading:** both paths preserve KV-cache prefix reuse; that is not what
+distinguishes them. `/api/chat`'s server-side renderer (RENDERER/PARSER
+`gemma4`) puts the model into an unbounded "thinking" mode that can
+consume the entire 40-token cap before any final content — DR-023's
+empty-response symptom is not specific to `/api/generate` at all.
+Hand-rendering the Gemma turn markers and using `raw: true` bypasses that
+renderer entirely.
+
+**Choice: Path (a).** Implemented in `c2_reason/src/c2_reason/prompt.py`
+(`PromptBuilder.build()` now wraps the stable-prefix-plus-evidence body in
+the hand-rendered turn) and `c2_reason/src/c2_reason/ollama_client.py`
+(`generate()` now sends `"raw": true`). No other files changed; no
+project tests existed for either module (confirmed by search before
+editing). **DR-013a still holds** — the turn-close markers are a fixed
+suffix appended AFTER the (evidence-extended, if any) rolling transcript,
+never before it; the append-after-transcript ordering G1 and DR-013a
+measured is unchanged. Full evidence, reasoning, and the explicit
+carried-forward risk (whether `raw: true` `/api/generate` could itself
+enter a similar mode on different/longer content than this session's
+micro-check covered) are recorded in DR-024, `DECISIONS.md`.
+
+**TASK 3 — HFP switch made permanent.** New `ops/ensure_hfp.sh`: finds
+the CX 6.00BT's bluez5 device id from `wpctl status`, finds the
+`headset-head-unit` profile's numeric index from `pw-cli enum-params
+<id> 8` (the profile must be set by numeric index — `wpctl set-profile
+<id> <name>` silently no-ops on a string, a finding from 1.0.8 re-hit
+while writing this script), applies it, and polls `pw-dump` for
+`api.bluez5.codec == "msbc"` before returning success; exits non-zero
+with a diagnostic otherwise. Verified working and idempotent by hand
+(two consecutive runs, both converging to `codec=msbc`) before wiring it
+into `ops/run_d0.sh`, which now calls it unconditionally before starting
+any service. Confirmed via `pw-dump` and `wpctl status` before proceeding
+to Task 4: `api.bluez5.codec: msbc`, both `bluez_output...` (sink) and
+`bluez_input...` (source) the active PipeWire defaults.
+
+**TASK 4 — Bar A item 5, PROVEN.** `ops/run_d0.sh` (now running
+`ensure_hfp.sh` automatically, and C2 running DR-024's raw-prompt path)
+launched; the operator was prompted at the start of every turn. **All ten
+turns started and completed** (`grep -c turn_start`/`turn_done` on
+`logs/c5.jsonl`: 10/10 each) with **zero tracebacks** across all four
+services' logs. `ops/run_d0.sh`'s own `trap cleanup EXIT` tore every
+service down cleanly at the end; no stray process remained (`pgrep`
+confirmed empty). No PipeWire/bluetoothctl command was touched after the
+run began. **Bar A items 1-5, restated: items 1 through 5 are now ALL
+PROVEN** — item 1 (the full C1→C2→C4 loop, including a real response
+generated and spoken) completed end-to-end for the first time this
+thread; item 5 (ten consecutive turns, no restart, no manual reconnect,
+no hang) is directly demonstrated by this run.
+
+**TASK 5 — Bar B, run twice; second run is the one reported.** First
+20-turn run (`ops/run_d0.sh --turns 20`) completed all 20 turns cleanly
+(zero tracebacks) — but `c5_orchestrator.bar_b_harness` reported "0/20
+turns had complete stage logs." Investigation found a pre-existing,
+previously-undiscovered bug, unrelated to DR-024: C1's `/transcribe`
+mints its own `turn_id` internally and C5 never adopted it, generating
+and logging under a separate uuid4 of its own — every stage's structured
+logs used a DIFFERENT id for the same real-world turn, so
+`decompose_turn()` could never find a complete set. This is not a DR-024
+regression; the bug predates this session and simply had never been
+exercised against the harness before (1.0.6/1.0.7/1.0.8 never got a
+complete turn to log). **Fixed in `c5_orchestrator/src/c5_orchestrator/main.py`:**
+`run_turn()` now adopts `transcript_data["turn_id"]` (C1's id, already
+returned in its response body and previously ignored) as the canonical
+id for the C2/C4/playback stages of that turn, replacing the locally
+generated uuid from that point on. Verified live immediately after the
+fix: `c1_response_received`'s logged `turn_id` matched C1's own
+`endpoint_declared`/`asr_done` lines for the same turn.
+
+Re-ran the full 20-turn Bar B loop with the fix live (operator spoke all
+20 turns again). **20/20 turns started and completed, zero tracebacks.**
+`c5_orchestrator.bar_b_harness --turns 20 --log-dir logs` on the resulting
+logs:
+
+```
+n_turns: 20
+t_ttfa_median_s: 4.283123534005426
+t_ttfa_p90_s: 5.838865382202494
+asr_tail_s_median: 0.9016393595011323
+c2_prefill_s_median: 0.37941285249689827
+c2_generate_s_median: 1.1153609960019821
+tts_s_median: 1.8411718514980748
+playout_s_median: 5.261019004996342
+uma_carve_bytes: 2147483648
+uma_carve_gib: 2.0
+kill_switch_median_s: 8.0
+kill_switch_fired: false
+```
+
+**T_ttfa median 4.28 s, p90 5.84 s — the kill-switch (median > 8 s) did
+NOT fire.** This is a real, honestly-measured figure from the pinned
+40-token cap, the pinned model+digest, and the live 2 GiB carve — reported
+as-is, not adjusted toward or away from any expectation.
+
+**Carve/kernel/digest attached to this figure:** live carve
+`2147483648` bytes = 2 GiB (fourth consistent reading, DR-025), kernel
+`7.0.0-30-generic` (unchanged — the 31 upgrade named as pending in 1.0.7
+has still not landed), model digest
+`sha256-90ce98129eb3e8cc57e62433d500c97c624b1e3af1fcc85dd3b55ad7e0313e9f`
+read directly from `logs/c2.jsonl`'s own `prefill_done`/`generate_done`
+lines during the live run, matching DR-020's pin.
+
+External-recorder click calibration: NOT attempted, per the prompt's
+explicit instruction (equipment not confirmed).
+
+**TASK 6 — records.** DR-024 (DR-023 settled, choice, implementation) and
+DR-025 (carve settled at 2 GiB) filed in `DECISIONS.md` (both appends).
+This STOP report appended to `RELAY.md`. `BACKLOG.md`'s blocker block
+replaced: all prior blockers (libportaudio2, headset connectivity/A2DP,
+DR-023) now CLOSED, the turn_id correlation bug documented as found-and-
+fixed, and both Bar A and Bar B results recorded. No box-level finding
+filed in `jesterai` — `ensure_hfp.sh`'s profile-switch procedure and the
+turn_id fix are both jester-1.0 code changes, not box-level hardware
+findings distinct from what HARDWARE.md already covers.
+
+Read-only check on `jester-2.1`, taken again at the end of session:
+`git -C /home/jester/jester-2.1 rev-parse HEAD` =
+`c41dc92fd121dafaae39a50d68e7aa91e73f9756` — identical to the before
+reading; repo untouched.
+
+### Proof-of-push
+
+This session's commit(s) will be pushed after this STOP report is
+written; the real hash(es), read from origin after an independent fetch,
+will be quoted in an addendum immediately following, per this repo's
+proof-of-push convention.
+
+### Manual steps remaining (Claude.ai UI)
+
+- **Sync now** on the jester-1.0 project.
+- **project-knowledge allowlist**: `ops/ensure_hfp.sh` is a new file —
+  add it to the allowlist if this project syncs `ops/` selectively.
+- **chat rename** check: thread 1.0.9, "DR-023 settled (DR-024), Bar A
+  item 5 proven, Bar B passes (T_ttfa median 4.28s)" or similar.
+
+### SHAs stated in this report (repeated, per this session's instruction)
+
+- jester-1.0 origin/main at session start (= 1.0.8's final commit):
+  3c561d05d493f5d85a88b7e8b21a269ecb56f822
+- jesterai HEAD (unchanged this session): 224a1c2a6f3e29f0119b30681f957c2aa4bd202d
+- jester-2.1 HEAD (read-only, before and after this session, unchanged):
+  c41dc92fd121dafaae39a50d68e7aa91e73f9756

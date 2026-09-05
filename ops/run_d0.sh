@@ -29,6 +29,11 @@ C4_PORT="${C4_PORT:-8004}"
 LOG_DIR="${REPO_ROOT}/logs"
 mkdir -p "${LOG_DIR}"
 
+# The bonded headset comes up on A2DP (sink-only) by default; C1 capture
+# and C4 playback are simultaneous, so this must be HFP/mSBC before any
+# turn runs (thread 1.0.8 finding, folded in per thread 1.0.9 / DR-024).
+"${REPO_ROOT}/ops/ensure_hfp.sh"
+
 PIDS=()
 cleanup() {
     for pid in "${PIDS[@]:-}"; do
