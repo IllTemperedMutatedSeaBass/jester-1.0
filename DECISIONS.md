@@ -180,3 +180,148 @@ continuing to resolve.
 
 This entry is an append; no prior entry above is edited, per the append-only rule for
 this file.
+
+### DR-020 — OLLAMA_MODEL PINNED TO gemma4-e4b-bakeoff:latest; DR-019's parameter-count reasoning corrected; tag+digest citation made standing convention (2026-09-05)
+
+DR-019 stands as written and is not edited. This entry corrects one piece
+of its reasoning and settles the pin.
+
+**CORRECTION TO DR-019.** DR-019 read the 7.5B parameter count as
+disproving a Gemma 3n E4B identity. That inference is WRONG. In the Gemma
+naming convention, "E4B" denotes approximately 4B **effective** parameters
+achieved via per-layer embeddings offloaded from the main forward pass;
+the raw on-disk checkpoint for an E4B model is itself approximately 7.5–8B
+parameters. A 7.5B parameter count is therefore CONSISTENT with an E4B
+checkpoint, not evidence against one. DR-019's parameter-count argument is
+retracted; its residual anomaly — the tag's declared architecture is
+`gemma4`, not `gemma3n` — is unresolved by this correction and is not
+itself settled here.
+
+**CHEAP EVIDENCE, gathered before writing any Stage 2 code:**
+
+(a) `ollama show --modelfile gemma4-e4b-bakeoff:latest`:
+```
+FROM /usr/share/ollama/.ollama/models/blobs/sha256-90ce98129eb3e8cc57e62433d500c97c624b1e3af1fcc85dd3b55ad7e0313e9f
+TEMPLATE {{ .Prompt }}
+RENDERER gemma4
+PARSER gemma4
+PARAMETER num_ctx 8192
+PARAMETER stop <turn|>
+```
+The FROM line points at a **local blob path**, not a registry base tag —
+there is no named upstream tag on this box to cross-check the "gemma4 vs
+gemma3n" question against.
+
+(b) Digest comparison across every pulled tag (`/api/show` FROM lines):
+- `gemma4:26b` → `sha256-7121486771cbfe218851513210c40b35dbdee93ab1ef43fe36283c883980f0df` (different blob)
+- `nomic-embed-text:latest` → `sha256-970aa74c0a90ef7482477cf803618e776e173c007bf957f635f1015bfcfef0e6` (different blob, unrelated model)
+- `jester-gen:latest` → `sha256-90ce98129eb3e8cc57e62433d500c97c624b1e3af1fcc85dd3b55ad7e0313e9f` — **SAME blob as `gemma4-e4b-bakeoff:latest`.**
+- `gemma4-e4b-bakeoff:latest` → `sha256-90ce98129eb3e8cc57e62433d500c97c624b1e3af1fcc85dd3b55ad7e0313e9f`
+
+**`jester-gen:latest` and `gemma4-e4b-bakeoff:latest` are two tags over the
+identical weight blob** — confirming the anticipated "Modelfile wrapper
+over the same blob" pattern, though this establishes only that the two
+*current* tags are aliases of each other, not that either is the model
+G1/G3 actually measured.
+
+(c) Manifest mtime for `gemma4-e4b-bakeoff` under
+`~/.ollama/models/manifests/`: **NOT OBTAINED.** That directory
+(`/usr/share/ollama/.ollama/models/manifests/`) is owned by the `ollama`
+service account and returned "Permission denied" to the `jester` user; no
+sudo was authorised this session. This is a genuine gap, not a negative
+result — it is recorded as unattempted-successfully, not as "no evidence
+of an earlier pull."
+
+**THE PIN.** `OLLAMA_MODEL=gemma4-e4b-bakeoff:latest`, resolving to blob
+digest `sha256-90ce98129eb3e8cc57e62433d500c97c624b1e3af1fcc85dd3b55ad7e0313e9f`.
+No fresh pull was performed or considered: re-pulling a tag can silently
+change what it resolves to, which would trade a known, fixed, if
+unprovenanced blob for an unknown one — a strictly worse position for
+comparability with G1, G3 and the 10.5 s 2.x cycle, for no offsetting gain.
+
+**STANDING CONVENTION, the durable part of this entry.** From now on,
+every measured figure in this stream cites BOTH the model tag AND its
+blob digest (`sha256-...`, from `ollama show`/`/api/show`'s FROM line or
+equivalent). A tag is mutable — it can be retagged, re-pulled, or aliased,
+as (b) just demonstrated in miniature — and only the digest is a fixed
+identity. Historical entries (G1, G3, DR-006's 10.5 s cycle, DR-013) that
+cite only "gemma4:e4b" cannot be retroactively completed with a digest
+they never recorded; they remain identity-unverified, per below.
+
+**WHAT REMAINS UNPROVEN.** Neither (a) nor (b) nor (c) establishes that
+digest `sha256-90ce9812...` is the model G1, G3, and the 2.x 10.5 s cycle
+actually ran against. (a) offers no upstream tag to check against; (b)
+shows two current tags are aliases of each other but says nothing about
+what existed under the name "gemma4:e4b" historically; (c) could not be
+read at all. The honest position, stated plainly and not resolved by
+assertion: **D0's Bar B figure is anchored to digest
+`sha256-90ce98129eb3e8cc57e62433d500c97c624b1e3af1fcc85dd3b55ad7e0313e9f`,
+under the tag `gemma4-e4b-bakeoff:latest`, and any comparison to G1's,
+G3's, or the 2.x cycle's historical figures carries an unverified-identity
+assumption.** Whether that assumption holds is not this session's call —
+it would need the operator's own record of what was pulled and tagged at
+the time G1/G3 ran.
+
+This entry is an append; no prior entry above is edited, per the append-only rule for
+this file.
+
+## 2026-09-05 — Thread 1.0.6: live carve reading found NOT 16 GiB while building the Bar B harness
+
+### DR-021 — LIVE UMA CARVE DOES NOT MATCH THE DOCUMENTED "16 GiB CURRENT"; FLAGGED, NOT ACTED ON (2026-09-05)
+
+While building the Bar B harness's `read_uma_carve_bytes()` (which reads
+`/sys/class/drm/card*/device/mem_info_vram_total`, the same method
+`jesterai/box/HARDWARE.md` §2/§3 used to confirm "16 GiB (INTERIM)"), the
+live reading on this box right now is **2147483648 bytes = 2 GiB**, not
+16 GiB. This is reported as a finding, not corrected or acted on — no
+carve change was made, attempted, or is proposed here, per the standing
+instruction that D0 builds and measures at whatever carve is actually in
+force and does not touch the BIOS.
+
+**Evidence gathered (read-only):**
+- `cat /sys/class/drm/card0/device/mem_info_vram_total` → `2147483648`
+  (2 GiB), the only card present (`card0`, vendor `0x1002`/AMD).
+- `journalctl -k` at the current boot (system up since 2026-09-04
+  ~18:02, no reboot since — confirmed via `uptime -s`): `amdgpu
+  0000:c5:00.0: VRAM: 2048M ... [drm] Detected VRAM RAM=2048M, BAR=2048M`
+  and `2048M of VRAM memory ready` / `14600M of GTT memory ready`.
+- `journalctl -u ollama`, consistently from boot (18:02) through the most
+  recent restart (06:25 the following day): `msg="inference compute" ...
+  type=iGPU total="14.3 GiB"` — Ollama's own reported compute total is
+  14.3 GiB, not 16 GiB, and has been since this boot.
+- `free -h`: system RAM total **28Gi**, not the ~15 GiB `box/HARDWARE.md`
+  §2 records for a 16 GiB carve, nor the ~6.9 GiB recorded for a 24 GiB
+  carve.
+
+**Reading, offered but not asserted as settled.** This pattern — a small
+fixed VRAM BAR (2 GiB) plus a much larger GTT pool (14.6 GiB) that Ollama
+reports as its usable compute total (14.3 GiB) — is consistent with the
+BIOS now being set to a **small "Specified" UMA value** (e.g. 2G) rather
+than 16G or 24G, with the rest of the unified memory served dynamically
+through GTT. This is plausibly a direct consequence of the same-day BIOS
+Auto/Specified exploration recorded in the "UMA carve ladder corrected"
+entry above (this box has not rebooted since 2026-09-04 18:02, which is
+consistent with, but does not by itself prove, that exploration being the
+cause) — offered as the likely explanation, not confirmed, since this
+session has no record of what the operator actually left the BIOS set to.
+
+**Consequence for the harness.** `read_uma_carve_bytes()` still reads
+`mem_info_vram_total` because that is the exact method `HARDWARE.md`
+itself uses and the only one available without `rocm-smi`/`amd-smi`
+(neither installed, per §3). This entry records that the figure it will
+report may not mean what earlier entries assumed it means once GTT is
+substantially in play: **`mem_info_vram_total` and "the model's actual
+usable compute memory" are not reliably the same number under this
+driver, at least at a small BAR / large-GTT carve.** Bar B's harness will
+report whatever this sysfs path says at run time — which is the honest,
+non-guessed answer — but the operator should confirm what the BIOS is
+actually set to before trusting that figure as "the carve," and should
+restore the intended value before an actual D0 measurement run if 2 GiB
+was not the intended state.
+
+**NOT resolved here:** whether 2 GiB is a deliberate leftover from BIOS
+exploration, an intended new value, or an unintended one. **NOT acted on
+here:** no BIOS change was made, attempted, or proposed by this session.
+
+This entry is an append; no prior entry above is edited, per the append-only rule for
+this file.

@@ -3,3 +3,10 @@ name = "c1_capture"
 version = "0.0.0"
 requires-python = ">=3.12"
 description = "Audio capture, transcription, and diarization (VAD/endpointing, speaker-change detection; speaker identity deferred to D2)."
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "faster-whisper",
+    "sounddevice",
+    "numpy",
+]

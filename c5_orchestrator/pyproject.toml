@@ -2,4 +2,9 @@
 name = "c5_orchestrator"
 version = "0.0.0"
 requires-python = ">=3.12"
-description = "Plain Python state machine coordinating the capture-reason-route-speak loop."
+description = "Plain Python state machine coordinating the capture-reason-route-speak loop. Pure HTTP client and driver -- no HTTP listener of its own."
+dependencies = [
+    "httpx",
+    "sounddevice",
+    "numpy",
+]

@@ -2,4 +2,10 @@
 name = "c4_speech"
 version = "0.0.0"
 requires-python = ">=3.12"
-description = "Text-to-speech synthesis via Kokoro."
+description = "Text-to-speech synthesis via Kokoro (D0), engine-agnostic interface per DR-018."
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "kokoro-onnx",
+    "numpy",
+]

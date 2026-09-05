@@ -3,3 +3,8 @@ name = "c2_reason"
 version = "0.0.0"
 requires-python = ">=3.12"
 description = "Reasoning engine: retrieval over the two-tier knowledge base plus LLM inference."
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "httpx",
+]

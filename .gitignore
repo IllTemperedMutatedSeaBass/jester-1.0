@@ -18,3 +18,6 @@ voices*.bin
 
 # Model weights
 models/
+
+# Structured JSON logs (run_d0.sh output; Bar B harness input)
+logs/
