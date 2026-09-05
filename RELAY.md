@@ -476,3 +476,140 @@ checking the `origin/main` ref, following the `git push origin main`
 that landed this STOP report and the DECISIONS.md/BACKLOG.md updates.
 
 - This session's commit SHA (repeated): 26a17a0ab6226a4ff0b5de5f2ca9efe6d970bc27
+
+## 2026-09-05 — Thread 1.0.8: headset link established (HFP/mSBC), Bar A item 5 still not proven — turn 1 crashed on C2/C4, DR-023 filed
+
+MODEL: Sonnet 5.
+
+**ENVIRONMENT CHECK.** `hostname` → `jesterai`; `whoami` → `jester`;
+`pwd` at launch → `/home/jester`; `/home/jester/jester-1.0` present. As
+expected — proceeded.
+
+**TASK 1 — clean/level confirmation.** `git fetch origin` in both repos.
+`jester-1.0`: working tree clean, up to date with `origin/main`, HEAD =
+`b6ea4a70b07b6172f7d6375cd1cbcdf88b42f228` (this repo's own `git
+rev-parse HEAD` and `origin/main` agreed exactly) — this is 1.0.7's final
+addendum commit, matching the prompt's carried state exactly. `jesterai`:
+clean, up to date with `origin/master`, HEAD =
+`224a1c2a6f3e29f0119b30681f957c2aa4bd202d`, unchanged from 1.0.7.
+
+Read-only checks: `git -C /home/jester/jester-2.1 rev-parse HEAD` (before
+this session's work) = `c41dc92fd121dafaae39a50d68e7aa91e73f9756`,
+unchanged from 1.0.7 — checked again at the end of this session, still
+`c41dc92fd121dafaae39a50d68e7aa91e73f9756` (see below), confirming no
+drift and no touch. `HeathenS_Talkings` still absent from `/home/jester`.
+
+**TASK 2 — headset link, ESTABLISHED.** `bluetoothctl info
+00:1B:66:8C:38:4E` showed `Connected: yes` immediately (operator had
+already powered/worn it per the prompt) — no reconnect was needed this
+session, unlike 1.0.7. However the device came up on **A2DP**
+(`api.bluez5.profile: a2dp-sink`, codec `aptx`, sink-only — confirmed via
+`pw-dump`), which per the prompt is not sufficient for simultaneous
+capture+playback. Switched the WirePlumber profile to
+`headset-head-unit` (index `196865`, obtained from `pw-cli enum-params 59
+8`; `wpctl set-profile 59 <name>` silently no-ops on a string name — the
+numeric index is required). Re-checked via `pw-dump`: node 66 now reports
+`api.bluez5.codec: msbc`, `api.bluez5.profile: headset-head-unit` — HFP/mSBC
+confirmed active. `wpctl status` shows both `bluez_output.00:1B:66:8C:38:4E`
+(sink, id 62) and `bluez_input.00:1B:66:8C:38:4E` (source, id 65) as the
+active PipeWire defaults (marked `*`), not the onboard analog. No
+PipeWire/bluetoothctl commands were touched after this point, once the D0
+run began.
+
+**TASK 3 — Bar A item 5, attempted, NOT proven; new failure point.** `ops/run_d0.sh`
+was launched, and the operator was prompted at the start of turn 1
+("TURN 1 of 10 — please speak now"). This session got materially further
+than 1.0.7: C1's VAD detected real speech and ASR completed
+(`asr_done`, `transcript_chars: 36`) — **the full capture path (headset →
+VAD → ASR) is proven working end-to-end for the first time this thread.**
+C2 then prefilled and generated against the pinned model (`eval_count:
+40`, hit the 40-token cap, `done_reason: "length"`) — but C2's returned
+`text` field was the empty string. C5 forwarded that empty string to
+C4's `/synthesize`, which 500'd (`kokoro_onnx` raises `ValueError: need
+at least one array to concatenate` on empty input text), and C5 has no
+per-turn error handling, so the `httpx.HTTPStatusError` propagated
+uncaught and killed the entire ten-turn loop after turn 1. All three
+background services shut down cleanly via `ops/run_d0.sh`'s own
+`trap cleanup EXIT`; no stray processes were left running (confirmed via
+`pgrep`).
+
+Cheap evidence gathered afterward (read-only, no code changed, see
+DR-023 in `DECISIONS.md` for full detail): a direct `curl` to
+`/api/generate` with a prompt shaped like C2's actual stable-prefix
+prompt reproduces the empty-`response` symptom exactly, independent of
+live audio; the same model via `/api/chat` with an equivalent message and
+the same 40-token cap returns ordinary, non-empty chat content. This
+points at the pinned Modelfile's `RENDERER gemma4`/`PARSER gemma4`
+expecting chat-templated input, not `c2_reason`'s raw-prompt string — a
+design question (raw-prompt vs. `/api/chat`, and whether the latter
+preserves DR-013a's cache-prefix rationale), not a one-line bug, and it
+was NOT fixed this session pending an operator ruling.
+
+**Bar A items 1-5, restated:** items 2/3/4 remain met in code, unchanged.
+Item 1 is materially further exercised than 1.0.7 — capture and ASR now
+verified live, but the loop still does not complete a turn, so item 1 is
+still not fully met end-to-end. **Item 5 (ten consecutive turns) is NOT
+proven** — the run did not complete even one turn to a played response.
+No claim of Bar A passing is made.
+
+**TASK 4 — Bar B, correctly skipped.** Per the prompt's explicit
+conditional, not attempted — Task 3 did not prove the loop runs.
+
+**Carve/kernel/digest, recorded per instruction regardless of Bar B not
+running:**
+- Kernel: `uname -r` → `7.0.0-30-generic`, unchanged from 1.0.7.
+- UMA carve, all three figures: documented 16 GiB
+  (`jesterai/box/HARDWARE.md` §2), operator-stated 24 GiB (this session's
+  prompt), live `cat /sys/class/drm/card0/device/mem_info_vram_total` →
+  `2147483648` bytes = **2 GiB** — identical to both DR-021 (1.0.6) and
+  the 1.0.7 reading, still on the same uninterrupted boot (`uptime -s` →
+  `2026-09-04 16:02:49`). Two consistent live instrument readings against
+  the operator's recollection favour the instrument, per this session's
+  own framing — recorded plainly as 2 GiB, filed as DR-022's continuation
+  under a fresh entry, DR-023, since DR-023's number was the one free
+  this session and the carve reading is folded into that entry rather
+  than opening a fourth near-duplicate DR for the same open question.
+- Model blob digest: not re-checked independently this session beyond
+  what DR-023's evidence already surfaces — `generate_done` and
+  `prefill_done` log lines from the live turn 1 both show `model_digest:
+  "sha256-90ce98129eb3e8cc57e62433d500c97c624b1e3af1fcc85dd3b55ad7e0313e9f"`,
+  matching DR-020's pin exactly, read directly from `c2_reason`'s own
+  structured logs during the live run rather than queried separately.
+
+**TASK 5 — records.** DR-023 filed in `DECISIONS.md` (append) — the
+turn-1 C2/C4 failure, evidence, and explicit non-fix pending an operator
+ruling. This STOP report appended to `RELAY.md`. `BACKLOG.md` updated:
+libportaudio2 and headset-connectivity blockers both marked CLOSED, DR-023
+added as the new blocking item, carve re-reading folded in. No box-level
+finding filed in `jesterai` — the profile-switch procedure (`pw-cli
+enum-params` + numeric `wpctl set-profile` index) is jester-1.0-repo
+operational detail, not a box-level hardware finding distinct from what
+HARDWARE.md already covers.
+
+Read-only check on `jester-2.1`, taken again at the end of session
+(after, per the prompt's before/after instruction): `git -C
+/home/jester/jester-2.1 rev-parse HEAD` = `c41dc92fd121dafaae39a50d68e7aa91e73f9756`
+— identical to the before reading; repo untouched.
+
+### Proof-of-push
+
+This session's commit(s) will be pushed after this STOP report is
+written; the real hash(es), read from origin after an independent fetch,
+will be quoted in an addendum immediately following, per this repo's
+proof-of-push convention.
+
+### Manual steps remaining (Claude.ai UI)
+
+- **Sync now** on the jester-1.0 project.
+- **project-knowledge allowlist**: no new files added outside
+  `DECISIONS.md`/`RELAY.md`/`BACKLOG.md` — no new addition expected.
+- **chat rename** check: thread 1.0.8, "headset HFP link established, Bar
+  A item 5 still not proven (C2/C4 empty-text crash, DR-023)" or similar.
+
+### SHAs stated in this report (repeated, per this session's instruction)
+
+- jester-1.0 origin/main at session start (= 1.0.7's final commit):
+  b6ea4a70b07b6172f7d6375cd1cbcdf88b42f228
+- jesterai HEAD (unchanged this session): 224a1c2a6f3e29f0119b30681f957c2aa4bd202d
+- jester-2.1 HEAD (read-only, before and after this session, unchanged):
+  c41dc92fd121dafaae39a50d68e7aa91e73f9756

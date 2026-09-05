@@ -17,33 +17,36 @@
     measured against is UNPROVEN — DR-020 records this as an
     identity-unverified comparison, not settled.
 
-- **RUN BAR B MEASUREMENT — next action, now blocked on one item (thread
-  1.0.7):**
-  1. `libportaudio2` is now installed (confirmed this session); C1 starts
-     cleanly. This blocker from 1.0.6 is CLOSED.
-  2. DR-021/DR-022: the live UMA carve is still **2 GiB**, unchanged
-     across DR-021 (thread 1.0.6) and this session, despite the operator
-     now stating the BIOS is set to 24 GiB — the box has not rebooted
-     since 2026-09-04 ~16:02, across both readings. Confirm what the BIOS
-     is actually set to and reboot before trusting Bar B's carve figure.
-  - **Live blocker, confirmed this session:** `ops/run_d0.sh` ran
-    end-to-end (all three services started healthy) but turn 1 timed out
-    inside C1's `/transcribe` — it blocks on the mic until an
-    energy-based VAD detects speech-then-silence, and no live speech was
-    present (bonded CX 6.00BT headset would not reconnect —
-    `br-connection-page-timeout`, PipeWire fell back to onboard analog
-    with no one speaking into it). Bar A item 5 needs a human physically
-    on a working mic for the ten-turn run; it cannot be scripted from an
-    unattended session regardless of which audio device is active. Also
-    needs the external-recorder click calibration run (Bar B) — hook
-    exists (`c5_orchestrator.bar_b_harness.run_calibration_click_hook`),
+- **RUN BAR B MEASUREMENT — next action, now blocked on DR-023 (thread
+  1.0.8):**
+  1. `libportaudio2` blocker (1.0.6): CLOSED, confirmed again this session.
+  2. Headset connectivity blocker (1.0.7): CLOSED this session — CX 6.00BT
+     connected, profile switched to `headset-head-unit` (HFP/mSBC,
+     confirmed via `pw-dump`: `api.bluez5.codec: msbc`), both bluez sink
+     and source were the active PipeWire defaults. C1 captured and
+     transcribed live speech (`asr_done`, `transcript_chars: 36`) —
+     the full capture path is proven working end-to-end for the first
+     time.
+  3. **NEW blocking item — DR-023:** with live audio working, turn 1
+     crashed one hop later. `c2_reason`'s raw-prompt call to
+     `/api/generate` returns an empty `response` string against this
+     model's `RENDERER gemma4`/`PARSER gemma4` Modelfile (confirmed via
+     direct `curl`, reproducible independent of live audio; `/api/chat`
+     against the same model does not exhibit this). C5 has no per-turn
+     error handling, so C4's resulting 500 (empty text to `kokoro_onnx`)
+     killed the whole ten-turn loop after turn 1. This needs an operator
+     ruling on whether `c2_reason` should move to `/api/chat` or a
+     templated raw prompt — DR-023 explicitly did not fix this, because
+     it may be in tension with the stable-prefix-plus-append caching
+     rationale (DR-013a).
+  4. DR-021/DR-022: live UMA carve read again this session — still
+     **2 GiB**, unchanged since DR-021 (thread 1.0.6), still on the same
+     uninterrupted boot, despite the operator's stated BIOS value moving
+     from ~16 GiB to 24 GiB in the interim. Confirm what the BIOS is
+     actually set to and reboot before trusting Bar B's carve figure.
+  - Still needs the external-recorder click calibration run (Bar B) —
+    hook exists (`c5_orchestrator.bar_b_harness.run_calibration_click_hook`),
     not automated, not attempted.
-  - **New, separate finding:** the CX 6.00BT headset itself would not
-    reconnect this session (`br-connection-page-timeout` on repeated
-    `bluetoothctl connect`, adapter powered, device not found on a scan)
-    — device is most likely off or out of range. Needs the operator to
-    check the headset's power state before the next attempt; this is not
-    a reboot-required condition so the operator was not paged for one.
 
 - **Two carried G1 constraints (DR-013), both binding on C2's design:**
   - Retrieved evidence must be appended AFTER the rolling transcript, never

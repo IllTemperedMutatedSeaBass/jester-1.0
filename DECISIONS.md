@@ -362,3 +362,64 @@ instruction that the carve is not to be touched.
 
 This entry is an append; no prior entry above is edited, per the append-only rule for
 this file.
+
+## 2026-09-05 — Thread 1.0.8: live turn 1 run reaches C2, C2's raw-prompt call to Ollama returns empty text against this Modelfile's PARSER, turn 1 crashes C4/C5
+
+### DR-023 — `c2_reason`'s `/api/generate` RAW-PROMPT CALL RETURNS EMPTY `response` AGAINST THIS MODEL'S `RENDERER gemma4`/`PARSER gemma4`; `/api/chat` DOES NOT. FLAGGED, NOT FIXED — DESIGN QUESTION, NOT A ONE-LINE BUG.
+
+With the CX 6.00BT headset connected on HFP/mSBC this session, `ops/run_d0.sh`
+got further than 1.0.7: C1 captured live speech and transcribed it
+(`asr_done`, `transcript_chars: 36`), C2 prefilled and generated (`eval_count:
+40`, hit the cap, `done_reason: "length"`) — but C2's `RespondResponse.text`
+was the empty string, which C5 forwarded to C4's `/synthesize?text=`, which
+5xx'd (`kokoro_onnx` raises `ValueError: need at least one array to
+concatenate` on empty text), which raised in C5's `raise_for_status()` with
+no per-turn error handling, killing the whole ten-turn loop after turn 1.
+
+**Cheap evidence gathered (read-only, no code changed):**
+
+(a) Direct `curl` to `/api/generate` with a prompt shaped like C2's actual
+stable-prefix prompt (`"You are Jester, a meeting assistant...\n\nhuman:
+hello there, how are you today"`), `num_predict: 40`: `"response": ""`,
+`"done_reason": "length"` — reproduces the empty-text symptom exactly,
+independent of C1/C4/live audio content.
+
+(b) Same model, same 40-token cap, via `/api/chat` with a single user
+message instead of a raw prompt string: `"message": {"content": "I'm doing
+well, thank you for asking! As an AI, I don't experience feelings..."}` —
+non-empty, coherent, ordinary chat completion.
+
+**Reading.** The Modelfile pinned under DR-020 sets `RENDERER gemma4` /
+`PARSER gemma4`, which is a chat-templating and (most likely) an
+output-channel parser, not a raw-completion passthrough. `c2_reason`'s
+`ollama_client.generate()` calls `/api/generate` with a hand-built raw
+prompt string (`PromptBuilder`'s stable-prefix-plus-append design, DR-013a/b),
+bypassing that template. Against this Modelfile, the raw-prompt path appears
+to spend the full generation budget on parser-recognized non-final content
+(most plausibly a channel/scaffold format PARSER gemma4 expects and strips
+before exposing `response`), leaving the exposed `response` field empty at
+the current 40-token cap even though tokens were genuinely generated
+(`eval_count: 40` both times). This is not evidence about *what* the hidden
+content is — no attempt was made to decode the raw `context` token IDs
+returned by `/api/generate` — only that `/api/chat` against the same model
+and the same token budget does not exhibit the symptom.
+
+**NOT fixed here — this is a design question, not a one-line bug.** Two
+architectures are in tension: `c2_reason.prompt.PromptBuilder`'s
+stable-prefix-plus-append raw string (built specifically so a fixed prefix
+stays cache-stable across turns, per DR-013a) versus `/api/chat`'s
+per-message list, which does not obviously preserve the same cache-prefix
+property this Modelfile/engine combination was chosen for. Switching C2 to
+`/api/chat` without checking whether that breaks the prefix-caching
+rationale DR-013a exists for would be trading one unverified assumption for
+another. This needs an operator ruling before Stage 2 code changes, the same
+way DR-019/DR-020 needed one for the model pin itself.
+
+**Consequence for this session.** Bar A item 5 is NOT proven (see RELAY.md
+STOP report) — the loop reached and crashed inside turn 1, on a different
+and more specific failure than 1.0.7's (which never got past C1 for lack of
+live audio). Bar B was not attempted, per its stated conditional on Task 3
+proving the loop runs.
+
+This entry is an append; no prior entry above is edited, per the append-only rule for
+this file.
