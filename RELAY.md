@@ -333,3 +333,7 @@ relocated) — Bar C constraints observed throughout.
   descriptive title.
 
 ### Proof-of-push
+
+Commit d19340994b8091d74cfd77023fbfe7bb7cf2547a is on origin/main. This
+hash was read from origin after an independent `git fetch origin`,
+checking the `origin/main` ref.
