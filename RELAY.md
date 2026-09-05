@@ -467,3 +467,12 @@ corruption)
 - 1.0.6 addendum commit (re-verified): a0fd5d52cf8859cd538f8fd0af1d44da3d7f8d23
 - jesterai HEAD (unchanged this session): 224a1c2a6f3e29f0119b30681f957c2aa4bd202d
 - jester-2.1 HEAD (read-only, before this session's check): c41dc92fd121dafaae39a50d68e7aa91e73f9756
+
+### Proof-of-push addendum (this session's own commit)
+
+Commit 26a17a0ab6226a4ff0b5de5f2ca9efe6d970bc27 is on origin/main. This
+hash was read from origin after an independent `git fetch origin`,
+checking the `origin/main` ref, following the `git push origin main`
+that landed this STOP report and the DECISIONS.md/BACKLOG.md updates.
+
+- This session's commit SHA (repeated): 26a17a0ab6226a4ff0b5de5f2ca9efe6d970bc27
