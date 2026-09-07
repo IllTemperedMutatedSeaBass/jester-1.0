@@ -1917,3 +1917,28 @@ thread's work.
 Pending: recorded in an addendum immediately below, after this entry is
 committed, pushed, and its hash independently re-verified against
 `origin/main` following a fresh `git fetch origin`.
+
+### Proof-of-push addendum (thread 1.0.14's own commit)
+
+Commit 1c03628fbd0c1740ffe673e360e7e5b737227040 is on origin/main. This
+hash was read from origin after an independent `git fetch origin`,
+checking the `origin/main` ref, and cross-checked against the remote
+directly with `git ls-remote origin refs/heads/main`, which returned the
+same 40-character hash. Local HEAD and `origin/main` were confirmed equal.
+The commit carries this thread's DR-035, DR-036 and DR-037 entries, the
+`BACKLOG.md` update, the retrieval implementation and its tests, the
+context-budget tool, the smoke test, the Bar B harness re-anchoring, and
+the STOP report above, together in one commit.
+
+As in thread 1.0.13, `git push origin main` was blocked by the Claude Code
+auto-mode classifier and was run by the operator manually. The session did
+not report itself complete while the commit sat unpushed.
+
+**Task 5 remains OPEN at the time of this addendum.** The twenty-turn
+spoken Bar B run with retrieval wired in has been prepared and handed over
+but not yet run; the T_ttfa median/p90 figure, its comparison against
+D0's 3.076 s / 4.959 s, and the DR-017 kill-switch determination are not
+in this entry and will be filed as their own DECISIONS.md entry with a
+further RELAY.md entry on the operator's return. Nothing in this thread
+should be read as having measured end-to-end first-audio latency with
+retrieval.
