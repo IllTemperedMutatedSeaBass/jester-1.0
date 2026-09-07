@@ -7,4 +7,9 @@ dependencies = [
     "fastapi",
     "uvicorn[standard]",
     "httpx",
+    "chromadb==1.5.9",
+    "ollama==0.6.2",
+    "python-pptx==1.0.2",
+    "pillow==12.3.0",
+    "pytesseract==0.3.13",
 ]

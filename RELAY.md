@@ -1576,3 +1576,149 @@ checking the `origin/main` ref, following the `git push origin main` that
 landed this STOP report (preceded by the DR-033 commit,
 56fbc2060fb778b45793b9979119a794bee70ed1, also confirmed against
 origin/main at the time).
+
+## Thread 1.0.13 — D1 ingest: Jester_IN into 1.x's own corpus (2026-09-07)
+
+### STOP report
+
+**Task 1 — machine check, DR reading, DR-028 numbering.** hostname
+`jesterai`, cwd `/home/jester`, `/home/jester/jester-1.0` present: machine
+authority confirmed as expected. Both repos clean and level with origin
+after an independent `git fetch`: `jester-1.0` origin/main and local HEAD
+both `613cae1cfbca2c7a266ecc0ef20cc3825ed9c4d8`; `jesterai` origin/master
+and local HEAD both `605de619019651f53a818b83c848036a91bd72e8` — matching
+the carried-state figures from thread 1.0.12's close exactly. Read in full
+before writing anything: `jesterai/DECISIONS.md` DR-008 (two-tier corpus,
+Tier 1 is the only trigger source) and DR-009 (standards licensing, derived
+criteria only); `jester-1.0/DECISIONS.md` DR-029 (Tier 2b derived-criteria
+trigger path, narrow, additive), DR-030 (isolation posture ruled as intent,
+purge mechanism does not exist), DR-031 (tier assignment is per-document at
+ingest, safe default non-triggering, reject path required), DR-032 (C2
+retrieval interface shaped for shared use, interface-shape only), DR-033
+(Chroma technology shared, store NOT shared — separate directories per
+stream — ingest code copy-then-diverge, embedding pinned by digest). DR-028
+numbering check: DR-028 EXISTS in full (the preamble-leak fix entry) — there
+is no gap between DR-027 and DR-029 in the numbering, only in this prompt's
+summary of which entries to read. Recorded as a non-gap in DR-034 rather
+than filing a gap-note that would misdescribe the actual state.
+
+**Task 2 — Jester_IN survey.** Mounted read-only at `/mnt/jester_in`
+(`exfat`, `ro`, confirmed via `mount | grep jester`). 96 files, 136M total,
+but the corpus is mirrored twice on the volume: `DHI-Benelux/`, `DHI-Group/`,
+`DHI-Iberia/`, `DHI-Nordics/`, `_cross-entity/` at top level are
+byte-identical (verified by `md5sum` on sampled files) to an `engagement/`
+subtree carrying the same paths. Unique content: 48 files under the
+top-level tree — 24 `.pptx` (PMO status reports, commercial objectives,
+entity structure, AIMS process map, management review input pack, AI
+awareness training, lessons-learned, system architecture, AI planning
+workshop), 22 image files (20 `whiteboard-photo-NN.jpg` + 2 `.png` — an
+AI-governance org chart and a data-flow diagram), plus `charter_dhi.json`
+and `charter_dhi.json.old` at the root (the 2.x assessor's OWN
+engagement-scoping config — role, criteria edition, org boundary — not a
+DHI document). No `.pdf`, `.docx`, `.xlsx`, `.msg`, `.html`, or `.eml` files
+anywhere on the volume, contrary to what DR-033(c)'s reference-implementation
+list of 2.x converters might suggest is needed. `truncated-08.pptx`'s
+filename suggested a corrupted fixture; it converted cleanly (7 chunks) —
+not actually truncated, or truncated in a way python-pptx tolerates.
+`System Volume Information/` is Windows exFAT housekeeping, ignored. Volume
+was read-only throughout: nothing was ever opened for writing against it.
+
+**Task 3 — ingest pipeline, built in `jester-1.0/c2_reason/src/c2_reason/
+ingest/`.** `converters.py` (pptx + image conversion, COPY-THEN-DIVERGE from
+`jester-2.1/ingest/conv_pptx.py` and `conv_img.py`), `ocr.py`
+(COPY-THEN-DIVERGE from `jester-2.1/ingest/ocr.py`), `tiering.py` (new,
+DR-031's provenance/authority heuristic plus DR-009's reject path),
+`chunking.py` (new, slide-boundary-aware with word-window fallback),
+`store.py` (new, Chroma persistent client + DR-033 embedding-digest
+mismatch guard), `ingest_config.py` (new, env-var config, fails loudly if
+`C2_CHROMA_PERSIST_DIR` or `C2_EMBED_MODEL_DIGEST` is unset, per DR-020's
+established convention), `run.py` (orchestrator, structured JSON logs to
+stderr, one line per document-level event). Only pptx/image converters were
+copied across — no pdf/docx/xlsx/msg/html/eml on the volume, per Task 2, so
+none of those converters were ported; this is a scoping decision, not an
+incomplete copy, and is recorded as such in DR-034. Licence discipline
+reverified, not assumed: python-pptx (MIT), Pillow (MIT-CMU), pytesseract
+(Apache-2.0) — no PyMuPDF, no extract-msg anywhere in this module, and
+neither format's converter exists in this pipeline at all since neither
+file type is present in the corpus. New deps added to
+`c2_reason/pyproject.toml` and installed into `c2_reason/.venv`.
+`nomic-embed-text:latest` digest reverified on this box —
+`sha256-970aa74c0a90ef7482477cf803618e776e173c007bf957f635f1015bfcfef0e6` —
+matches DR-033's recorded value exactly.
+
+**Task 4 — run against the DHI corpus.** 46 documents seen and processed (48
+unique files minus the 2 excluded charter-config files), 0 rejected, 0
+unprocessed, 0 degraded, 622 chunks written, 240.42s elapsed. Tier split: 5
+TIER1 (`DHI-Group_Entity-Structure_2026.pptx`,
+`DHI-Group_Org-Chart_AI-Governance_2026-Q1.png`, and three documents under
+`Risk & compliance/` — the AI planning workshop, the AIMS process map, the
+management review input pack), 41 UNASSIGNED (non-triggering, DR-031's safe
+default) — including all 9 PMO-status decks, all 4 commercial-objectives
+decks, the AI-awareness-training deck, the lessons-learned and
+system-architecture decks, the data-flow-diagram, and all 20 whiteboard
+photos. 0 documents landed in Tier 2a or 2b: no legislation or standards
+text exists on the volume, so DR-009's reject path — present in
+`tiering.py`, checked for every document — fired zero times this run; not
+exercised by real data, not a claim that it works untested. Failures: none.
+Retrieval verified against 5 representative queries (board governance
+structure; AI management system process/risk compliance; ERP upgrade
+project status; AI awareness training; whiteboard workshop notes) — every
+query returned topically relevant chunks from the correct source document.
+This is a searchability sanity check, explicitly NOT a quality evaluation:
+no precision, recall, or fire-rate figure is claimed or implied.
+
+**Task 5 — what this does NOT give the system, stated plainly.** Retrieval
+is not wired into C2's request path (DR-032's interface shape is specified,
+not built). No C3 trigger logic reads from the Tier 1 collection — ingest
+populates a store; it does not make Jester speak. DR-013's `num_ctx` 8192
+problem is completely untouched: no measurement exists yet of what happens
+to prefix-cache reuse when retrieved evidence is appended to a real rolling
+transcript. All three, plus a fourth (replace the tiering heuristic before
+the corpus grows past hand-auditable size) and a fifth (DR-030's purge gap
+now covers a second concrete persistent surface — the Chroma store itself,
+holding real if low-sensitivity DHI content on disk with no purge path),
+are recorded in `BACKLOG.md`.
+
+**Task 6 — records.** `DECISIONS.md` DR-034 filed (tier-assignment heuristic
+and chunking strategy ruled; DR-028 non-gap recorded; a scope-tension
+disclosure — see below). `BACKLOG.md` updated with the D1-ingest-complete
+entry above the still-open D1-retrieval-design entry from thread 1.0.12.
+`.gitignore` extended to exclude the Chroma persistence directory and run
+artefacts (machine-local state, not source — the same class of thing DR-030
+flags, not committed).
+
+**Scope tension disclosed.** This thread's writable scope named jester-2.1
+"read-only HEAD check only," while also citing DR-033(c)'s copy-then-diverge
+mandate, which cannot be satisfied without reading jester-2.1's actual
+converter source. This session read `ingest/conv_pptx.py`,
+`ingest/conv_img.py`, `ingest/ocr.py`, `CLAUDE.md`, and `requirements.txt`
+from jester-2.1 — a content read, not a HEAD-only check — to do Task 3
+honestly rather than reinvent the pipeline blind. No write was made to
+jester-2.1 at any point.
+
+**Untouched-repo proof.** `jester-2.1` HEAD, read-only, was
+c41dc92fd121dafaae39a50d68e7aa91e73f9756 both before this thread's file
+reads and after, confirmed by a second `git -C jester-2.1 rev-parse HEAD`;
+`git -C jester-2.1 status --porcelain` returned empty throughout, confirming
+no working-tree write occurred despite the content reads disclosed above.
+`HeathenS_Talkings`: absent from this box (`/home/jester` listing carries no
+such directory) — stated absence, per this thread's own machine-authority
+check, not touched.
+
+### SHAs stated in this report (full 40 characters, in prose)
+
+`jester-1.0` origin/main and local HEAD, read after an independent `git
+fetch origin` checking the `origin/main` ref, were both
+613cae1cfbca2c7a266ecc0ef20cc3825ed9c4d8 at the start of this thread.
+`jesterai` origin/master and local HEAD, same method, checking the
+`origin/master` ref, were both 605de619019651f53a818b83c848036a91bd72e8 at
+the start of this thread — jesterai was not written to this thread, so this
+figure is also its close. `jester-2.1` HEAD, read-only, was
+c41dc92fd121dafaae39a50d68e7aa91e73f9756 both before and after this
+thread's work, confirmed by a second `git -C jester-2.1 rev-parse HEAD`.
+
+### Proof-of-push
+
+Pending: recorded in an addendum immediately below, after this entry is
+committed, pushed, and its hash independently re-verified against
+`origin/main`.

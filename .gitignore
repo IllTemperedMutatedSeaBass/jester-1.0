@@ -22,3 +22,10 @@ models/
 # Structured JSON logs (run_d0.sh output; Bar B harness input)
 logs/
 logs_*_backup/
+
+# D1 ingest: the Chroma persistence directory and run artefacts are
+# machine-local state, not source (DR-033(b), DR-030 -- this is exactly the
+# kind of retention surface DR-030 flags, not something to commit).
+c2_reason/chroma_store/
+c2_reason/ingest_stdout.json
+c2_reason/ingest_stderr.log

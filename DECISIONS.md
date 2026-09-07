@@ -1415,3 +1415,92 @@ is still open work, not foreclosed by adopting the incumbent now.
 
 This entry is an append; no prior entry above is edited, per the append-only rule for
 this file.
+
+### DR-034 — D1 INGEST BUILT AND RUN: TIER-ASSIGNMENT HEURISTIC, CHUNKING STRATEGY, AND DR-028 NUMBERING NON-GAP (2026-09-07)
+
+**DR-028 numbering check (thread 1.0.13 Task 1).** DR-027 is followed by
+DR-029 in `DECISIONS.md`'s prose ordering, which read as a possible gap in
+the numbering. Checked: DR-028 EXISTS, filed in full at this file's own
+line ~825 ("Preamble-leak defect found and fixed..."), and is cross-referenced
+throughout `BACKLOG.md` and `RELAY.md`. There is no gap. No note is filed for
+a non-gap; recorded here only because the checking was asked for explicitly.
+
+**Ingest pipeline built per DR-033(c).** `c2_reason/src/c2_reason/ingest/`
+(new): `converters.py` (pptx + image, COPY-THEN-DIVERGE from
+`jester-2.1/ingest/conv_pptx.py` and `conv_img.py`), `ocr.py`
+(COPY-THEN-DIVERGE from `jester-2.1/ingest/ocr.py`), `tiering.py` (new, DR-031
+implementation), `chunking.py` (new), `store.py` (new, DR-033(b) Chroma
+store + digest-mismatch guard), `ingest_config.py` (new, env-var config
+following `config.py`'s DR-020 fail-loudly convention), `run.py` (new,
+orchestrator with structured JSON logging to stderr).
+
+**Scoping divergence from the 2.x reference, named explicitly.** Only pptx
+and image converters were copied: the Jester_IN survey (Task 2, this thread)
+found no pdf/docx/xlsx/msg/html/eml files on the volume, so those
+converters were not ported. 2.x's `ConversionResult`/`_version_meta`/manifest
+apparatus (built for the 2.x assessor's `evidence_strength` scoring) was not
+carried across either — 1.x's retrieval-and-trigger use case does not need
+per-document approval-date/confidence metadata, so this is a smaller,
+purpose-built module, not a partial port. This is a divergence decision, not
+an oversight, and is recorded so a future reader does not read the missing
+converters as an incomplete copy.
+
+**Tier-assignment heuristic (RULED, not merely implemented).** `tiering.py`
+classifies each document by matching its path against DR-008's own Tier-1
+list (board pack, minutes, resolutions, policy, risk register, articles,
+delegation-of-authority, material contract obligations, regulatory
+correspondence) as keyword stems, with every non-match defaulting to
+UNASSIGNED (non-triggering) per DR-031's safe default — never guessed into
+Tier 1. This is explicitly a first-pass, hand-auditable heuristic sized to a
+~46-document corpus, not a durable tiering mechanism; every assignment logs
+its matched evidence so a human can audit or correct it. Carried to
+`BACKLOG.md` as work a larger corpus will require replacing.
+
+**Chunking strategy (RULED).** Chunk on the converters' own natural section
+boundary (`## Slide N:`, from `converters.convert_pptx`) when present;
+fall back to a fixed 220-word window with 40-word overlap for text with no
+natural boundary (OCR output has none). Chosen because the corpus is
+uniformly short-per-unit (slide decks, single OCR'd photos) — no chunk in
+this run needed sub-splitting except as a safety cap on the rare oversized
+slide. Not represented as a generally-correct strategy for a different
+corpus shape (e.g. long-form prose).
+
+**Run result (Task 4), summarised — full figures in this thread's RELAY.md
+STOP report:** 46 documents seen (48 minus 2 excluded — see below), 46
+processed, 0 rejected, 0 unprocessed, 0 degraded, 622 chunks written, 5
+documents tiered TIER1, 41 UNASSIGNED (non-triggering), 0 into any Tier-2
+sub-collection (no legislation/standards text found on the volume — DR-009's
+reject path exists in `tiering.py` but fired zero times, not exercised by
+real data this run). Elapsed 240.42s. Retrieval verified against 5
+representative queries — returned relevant chunks in every case — but this
+is a searchability sanity check, not a quality evaluation; no fire-rate or
+precision figure is claimed.
+
+**Two exclusions from ingest, decisions not oversights.** (1) `engagement/`
+is a byte-identical duplicate mirror of the top-level `DHI-*/` and
+`_cross-entity/` trees (verified by md5sum on a sample, not assumed) —
+ingesting it would double-count every document, so it is skipped by name.
+(2) `charter_dhi.json` / `.old` are the 2.x assessor's OWN engagement-scoping
+config (role, criteria edition, org boundary) — not a DHI document — and are
+excluded as tooling artefact, not corpus content.
+
+**What this does NOT do, stated plainly (Task 5).** Retrieval is not wired
+into C2's request path; no C3 trigger logic reads from either collection;
+DR-013's `num_ctx` 8192 constraint is untouched and unmeasured against
+retrieved-evidence-plus-transcript token pressure. Carried to `BACKLOG.md`.
+
+**Scope tension disclosed, not hidden.** This session's writable scope named
+jester-2.1 as "read-only HEAD check only," and separately named DR-033(c)'s
+copy-then-diverge requirement, which is impossible to satisfy without
+reading jester-2.1's actual converter source. This session read
+`ingest/conv_pptx.py`, `ingest/conv_img.py`, `ingest/ocr.py`, `CLAUDE.md`,
+and `requirements.txt` from jester-2.1 to do that — a file-content read, not
+a HEAD-only check. No write was made to jester-2.1 at any point: confirmed
+by `git -C jester-2.1 status --porcelain` returning empty and HEAD
+unchanged at c41dc92fd121dafaae39a50d68e7aa91e73f9756 across the session.
+Flagged here as a disagreement between two instructions in the same prompt,
+resolved in favour of the more specific, later-cited requirement
+(DR-033(c)'s copy-then-diverge), not silently.
+
+This entry is an append; no prior entry above is edited, per the append-only rule for
+this file.

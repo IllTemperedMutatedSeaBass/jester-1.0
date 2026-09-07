@@ -2,6 +2,29 @@
 
 ## Open
 
+- **Ingest built and run against the real DHI corpus (thread 1.0.13,
+  DR-034); retrieval is NOT wired into C2 yet.** 46 documents ingested from
+  `/mnt/jester_in` into 1.x's own Chroma store
+  (`c2_reason/chroma_store`, `C2_CHROMA_PERSIST_DIR`), 622 chunks, 5 Tier1 /
+  41 unassigned, embedding digest recorded and checked at store-open. What
+  the next thread must do, in priority order: (1) wire retrieval into C2's
+  `/respond` path per DR-032's interface shape (`corpus_id`/`mode`, evidence
+  appended after the rolling transcript, never prepended — DR-013(a)); (2)
+  build C3 trigger logic that actually reads Tier 1 (none exists yet — D1
+  ingest only populates the store, it does not make Jester speak); (3)
+  measure DR-013's `num_ctx` 8192 ceiling against a real retrieved-evidence
+  payload added to a rolling transcript — untouched and unmeasured, and
+  DR-032 already flags this as the first place a chat-mode caller's lack of
+  a stable transcript prefix would bite too; (4) replace `tiering.py`'s
+  path-keyword heuristic before the corpus grows past hand-auditable size
+  (DR-034) — it was sized for ~46 documents, not a production ingest
+  volume; (5) DR-030's purge mechanism still does not exist — this thread
+  added a NEW persistent, cross-session retention surface (the Chroma store
+  itself), which is a second concrete instance of the gap DR-030 already
+  flagged, not a new finding, but worth re-stating: D1 retrieval now holds
+  real (if low-sensitivity, per the corpus surveyed) DHI content on disk
+  with no purge path.
+
 - **D1 retrieval can now be scoped against a settled corpus/trigger design
   (thread 1.0.12, DR-029 through DR-032).** Buildable now: Tier 1 trigger
   path (DR-008, unchanged), Tier 2a substantiation-only path (DR-008/DR-029,
