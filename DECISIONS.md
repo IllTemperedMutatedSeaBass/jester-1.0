@@ -1026,3 +1026,278 @@ overclaim from).**
 
 This entry is an append; no prior entry above is edited, per the append-only rule for
 this file.
+
+## 2026-09-07 — Thread 1.0.12: corpus and trigger rulings before D1 retrieval
+
+### DR-029 — TIER 2 GAINS A NARROW, SEPARATE THIRD TRIGGER PATH: DERIVED CRITERIA EVALUATION. DR-008's LEXICAL-RETRIEVAL PROHIBITION IS PRESERVED, NOT REVERSED. (2026-09-07)
+
+**The gap.** DR-008 makes Tier 1 (the company's own material) the only
+trigger source; Tier 2 (law and standards) is consulted only after Tier 1
+flags a candidate. A live proposal that is novel — no Tier 1 precedent, so
+nothing fires — but conceptually in breach of a standard or of good practice
+falls through this gate entirely. That is precisely the case a board most
+needs flagged, and DR-008 as written cannot flag it.
+
+**What is NOT wrong.** DR-008's reasoning stands and is not reopened here.
+Its target was measured, not theoretical: 2.x's end-to-end run flipped 4 of 6
+correctly-Absent records to false-positive Partial because a large, generic,
+lexically-overlapping corpus always returns a nearest-neighbour chunk.
+Similarity search over raw law/standards TEXT as a trigger makes Jester a
+chatterbox. That mechanism — retrieval-as-trigger over bulk text — is what
+DR-008 correctly forbids, and it remains forbidden. DR-008's Tier 2 wording
+("law and standards... NEVER a trigger source on its own") is narrowed by
+this entry, not reversed: it continues to bind Tier 2's LEGISLATION/STANDARDS
+TEXT sub-collection exactly as filed.
+
+**RULING.** Tier 2 is split into two sub-collections with two different
+retrieval/evaluation mechanisms, mirroring DR-009's existing derived-criteria
+posture rather than inventing a new one:
+
+- **Tier 2a — raw law and standards TEXT** (to the extent legislation is
+  redistributable at all; DR-009 already bars ISO/IEC text from shipping).
+  Unchanged from DR-008: substantiates only, queried after a Tier 1 or Tier
+  2b hit, never a trigger source.
+- **Tier 2b — DERIVED CRITERIA** (already mandated content-wise by DR-009 for
+  licensing reasons). This is a NEW, THIRD trigger path, additive to Tier 1's
+  existing trigger authority, and it is NOT a retrieval path. A criterion
+  ("AI systems affecting individuals require documented human oversight") is
+  a checkable proposition an utterance either does or does not satisfy;
+  DR-008's failure mode — a nearest-neighbour chunk always exists in a large
+  generic corpus — does not apply to evaluating an utterance against a small,
+  fixed set of discrete propositions. That is the argument for why this path
+  can trigger without reproducing DR-008's noise.
+
+**Where the noise relocates — the control is NOT free.** The mechanism that
+replaced similarity thresholding is criteria SPECIFICITY and COUNT: an
+over-broad or overlong criteria set fires on most boardroom utterances just
+as surely as bulk-text retrieval did, by a different route. This is
+testable — a fire-rate measurement of the criteria set against a transcript
+corpus — but no fire-rate bar is fixed here. Per WAYS_OF_WORKING §7, the bar
+must be fixed BEFORE that experiment is run, not after. This ruling licenses
+the experiment; it does not pre-empt its result.
+
+**What this adds to SEED §8 q1, and what it leaves open.** SEED §8 q1 ("C3
+trigger mechanics... the core product question") is NOT closed by this entry
+and is not to be treated as closed. What this ruling adds: there are now
+THREE trigger paths, not two (Tier 1 alignment-mismatch/policy-breach, Tier
+2b criteria evaluation, and invitation/direct-question), and Tier 2b's
+criteria are the mechanism by which a Tier-1-precedent-free proposal can
+still be caught. What remains open, explicitly, because this ruling does not
+settle it:
+  1. **Cost.** A criteria set is a stable prefix, so DR-013 G1's cache-hit
+     regime (0.249 s delta prefill for +200 tokens) favours holding it
+     resident — but it consumes `num_ctx` capacity DR-013(b) already flags
+     as overflowing a real meeting in 30-45 minutes. Both directions are
+     live; neither is resolved here.
+  2. **Whether evaluation belongs in C3 or C2.** SEED §2 states C3 is "a
+     fast, cheap gate... not deep reasoning: the expensive thinking is C2's."
+     Whether per-criterion evaluation fits C3's gate budget or belongs to
+     C2's reasoning pass is a latency question nobody has measured, and DR-006
+     already makes C3's etiquette (hand-up-then-speak) the PRIMARY latency
+     mitigation — Tier 2b evaluation must fit inside that budget or it
+     undermines the mitigation DR-006 relies on. UNDECIDED.
+  3. **How criteria are derived, and by whom.** Under DR-002's Gate A,
+     frontier-assisted derivation of criteria from standards text is
+     permitted as a development artefact (the boundary is the shipped
+     PRODUCT making no runtime frontier calls, which criteria-as-static-text
+     does not violate). But derivation is not purely an engineering choice:
+     a criterion derived too close to the source standard's own wording risks
+     being a derivative work, which is a legal judgement, not an engineering
+     one, and is NOT settled by this entry. Who signs off that a derived
+     criterion is sufficiently transformed is open.
+
+**Consequence for SEED.** `SEED_jester-1.0.md` §8 q2 is annotated (not
+rewritten, per its own resolved-in-place convention) with a pointer to this
+entry, since its "never a trigger source on its own" phrasing is now narrowed
+for Tier 2b specifically. Filed as a jesterai touch; see that repo's entry.
+
+### DR-030 — ISOLATION IS THE STATED DATA-HANDLING POSTURE FOR ALL DOCUMENT CLASSES; ITS CONSEQUENCES ARE RULED AS INTENT WITH AN EXPLICIT, UNBUILT GAP — NOT AS AN IMPLEMENTED CONTROL (2026-09-07)
+
+**RULING.** Private and sensitive documents supplied to Jester (employee
+records, legal advice, financial forecasts, board material, anything else a
+board chooses to supply) receive no special per-document handling. The
+control is isolation, not classification: Jester is a standalone box, session
+material is contained on the USB volume, and the box is purged of residual
+session material between sessions unless something is deliberately written
+out to a `Jester_OUT` volume. This is recorded so it is not re-litigated the
+next time a sensitive document class comes up.
+
+**This ruling is of INTENT. It is explicitly NOT a statement that the
+posture is implemented.** Its consequences are load-bearing and testable,
+and are recorded here precisely so they can be tested rather than assumed:
+
+1. **The purge between sessions must actually occur and must be verifiable.**
+   "Verifiable" means an enumerable list of retention surfaces plus a
+   checked-empty-at-session-start record — a purge that cannot be checked is
+   not a control, only an intention.
+2. **"The box" covers, at minimum: model KV cache/loaded weights, the vector
+   store, logs and transcripts, and any temporary files.** Each is a distinct
+   surface with a distinct current state (below).
+3. **Anything written to `Jester_OUT` is a deliberate act with its own
+   controls**, separate from the purge boundary above. Those controls are not
+   designed in this session.
+
+**Current state, checked this session, stated plainly rather than assumed:**
+
+- **Purge mechanism: DOES NOT EXIST.** No script, service, or documented
+  procedure purges the box between sessions. This is a gap, not a
+  deprioritised nicety.
+- **Logs/transcripts: PERSIST, unpurged.** `jester-1.0/logs/` and
+  `logs_1.0.10_backup/` exist in the working tree on the box. They are
+  git-ignored (`.gitignore`: `logs/`, `logs_*_backup/`) so they do not persist
+  in the repo's committed history, but they persist on disk, uncontrolled, in
+  the working tree — which is the surface the purge boundary above must
+  actually cover.
+- **Model KV cache / loaded weights: PERSIST, by design, unrelated to this
+  posture.** `ollama.service` is an enabled, currently-running systemd unit
+  (`systemctl is-enabled ollama` → enabled), i.e. a persistent server whose
+  process and any cached state outlive any single session. Whether ollama's
+  own cache retains content specific to a prior session's utterances was not
+  established this session and is carried forward as an open question, not
+  assumed clean.
+- **Vector store: does not yet exist.** No retrieval has been built (this is
+  a pre-D1 session by design). The surface is empty by ABSENCE of the
+  component, not by any control over it — recorded so it is not mistaken for
+  a designed-empty state once C2 retrieval lands.
+- **Residue from other streams, found on this box outside either repo, at
+  session start:** `/home/jester/corpus_files/`, `/home/jester/models/`,
+  `/home/jester/bakeoff/`, `/home/jester/backup-demo-input-2026-08-25T004252/`.
+  These are 2.x-stream artefacts, not Jester 1.x session material, but they
+  are concrete evidence that untracked material accumulates on this shared
+  box across streams and sessions with no existing removal mechanism — the
+  exact class of gap a purge would need to close. Not touched this session
+  (write-no-application-code, box-state changes deferred per machine-authority
+  convention).
+
+**Filed here rather than jesterai** because Task 3 was assessed to straddle:
+the posture itself is 1.x product/data-handling state, but the purge
+mechanism, once built, is box-level per `PORTFOLIO.md` §6 (it must cover
+residue from all streams sharing the box, as the found residue above
+demonstrates). This entry rules the posture and records the gap; the
+box-level purge-mechanism work itself is not designed here and is
+cross-referenced from jesterai's entry as future box-level work.
+
+### DR-031 — TIER ASSIGNMENT IS PER-DOCUMENT AT INGEST, ON PROVENANCE/AUTHORITY, NOT ON VOLUME OR SENSITIVITY; SAFE DEFAULT IS NON-TRIGGERING; A REJECT PATH IS REQUIRED, NOT ONLY A TIER FIELD (2026-09-07)
+
+**Why tier cannot be a volume property.** `Jester_IN` is the single read
+volume for both 1.x and 2.x; its contents are whatever a board chooses to
+supply — legislation, counsel advice, forecasts, agendas, minutes, employee
+records, anything, undifferentiated on the medium. Tier assignment is
+therefore necessarily a per-document decision made at ingest, not an
+inherited property of where a file came from.
+
+**RULING — the discriminating test is provenance/authority, not topic or
+sensitivity.** The question an ingest step must answer per document is: is
+this an instrument of THIS COMPANY'S OWN governance (Tier 1), or does it
+carry general legal/normative force without being company-specific (Tier
+2a/2b, per DR-029)? This is derivable directly from DR-008's own Tier 1 list
+(board pack, prior minutes and resolutions, policies, risk register,
+articles, delegation-of-authority matrix, material contract obligations,
+open regulatory correspondence) — note DR-008 already contains the edge case
+that proves the test is provenance and not "internal-facing": open regulatory
+correspondence is externally directed yet is Tier 1, because it is an
+instrument of this company's own position.
+
+Tier assignment is explicitly NOT a sensitivity classification — DR-030
+already rules that sensitivity gets uniform isolation handling regardless of
+tier. The two axes are independent: employee records are Tier 1 by
+provenance (the company's own material) despite being of near-zero value as
+a trigger source, and counsel advice is company-specific yet typically holds
+no precedent-setting force the way a board resolution does. DR-008's own
+priority note (minutes/resolutions rank above legislation) already implies
+an internal value ranking within Tier 1 that provenance alone does not
+capture. Flagged here as a real texture in the data, not resolved — inventing
+a Tier 1a/1b split is explicitly out of scope for this entry.
+
+**Safe default for an ambiguous or unassigned document: NON-TRIGGERING,
+flagged for review — never default to Tier 1.** Reasoning from DR-008's own
+stated value: Tier 1 is the ONLY trigger source, so defaulting an
+unclassified document into Tier 1 makes it a trigger source by default,
+i.e. manufactures exactly the noise DR-008 was written to prevent, against a
+product whose value is knowing when to stay silent. Defaulting an ambiguous
+document to non-triggering (available for retrieval/substantiation once
+tiered, but inert until then) fails safe.
+
+**A reject path is required, separate from the tier field.** DR-009 already
+means raw ISO/IEC standards text must not be on the volume at all — an
+ingest step therefore needs three outcomes, not two: assign-Tier-1,
+assign-Tier-2(a/b), or REJECT (redistribution status prohibits shipping this
+text in any tier). Tier field alone cannot express "this document may not be
+retained."
+
+**What a future ingest session needs, to classify the carried-over DHI
+corpus.** The volume was not mounted this session (`mount | grep jester`
+returned nothing), so DHI's contents were not inspected and are not
+classified here, per this session's write-no-application-code and
+machine-state-deferred posture. A future ingest session needs, per document:
+provenance (authored by whom, for whom, and under what authority),
+document type and whether it is a governance instrument vs. a reference
+text, date/version and supersession status (is this superseded by a later
+board resolution or a later standard revision), and licensing/redistribution
+status (to route the reject path per DR-009). Without these four, per-
+document tiering cannot proceed safely and the DHI corpus should be treated
+as unassigned/non-triggering under this entry's safe default until it is.
+
+### DR-032 — C2's RETRIEVAL INTERFACE IS SHAPED FOR SHARED USE (1.x SPOKEN AND 2.x CHAT) FROM THE OUTSET; THIS IS AN INTERFACE-SHAPE RULING ONLY, NOT A SHARED-DEPLOYMENT, SHARED-CORPUS, OR SHARED-CODE-OWNERSHIP COMMITMENT (2026-09-07)
+
+**Observation.** Jester 1.x (conversational audio) and 2.x's "chat with AI"
+function are the same retrieve-then-reason engine behind different
+transports (voice turn-taking vs. a chat window).
+
+**RULING — shape C2's retrieval interface for shared use from the outset.**
+Supporting argument, anchored in this stream's own already-filed
+constraints, not asserted fresh:
+
+- SEED §3/§7 already commit C2 to speaking HTTP on env-configured addresses,
+  even co-located — "no in-process shortcuts... never assumed co-located." A
+  chat client is simply another caller of that same interface; no new
+  transport commitment is created by this ruling.
+- SEED §7's own stated rationale — skipping the discipline "turns the later
+  hardware port from a one-day exercise into a one-month rewrite" — applies
+  identically to retrofitting a second caller's shape onto an interface
+  designed around one.
+- The cost now is small and specific, not open-ended: C2's request carries a
+  `corpus_id` and a `mode` field rather than assuming a meeting transcript,
+  and retrieval sits behind an interface rather than inlined into C2's
+  request-handling.
+
+**The cost, named honestly, not waved away.** At D0, `corpus_id` and `mode`
+each have exactly one live value — there is no second caller yet. Dead
+parameters are a real cost: they can be mis-set with nothing to catch it
+until a second caller exists to disagree. This is accepted here as a
+DELIBERATE, NARROW exception to the no-premature-abstraction default — two
+fields and one interface boundary, not a plugin system or a generalised
+corpus framework — justified specifically by SEED §7's one-day-vs-one-month
+argument, which is a stronger justification than "might be reused someday."
+
+**Binding technical carry-over, not just a portability nicety.** DR-013(a)
+already established, as a measured constraint: retrieved evidence must be
+APPENDED AFTER the rolling transcript, never prepended, or the cached
+prefix invalidates and first-audio latency returns to the 5-11s regime. A
+chat-mode caller has no rolling transcript to append after. The interface
+must express this ordering discipline mode-independently (e.g. "stable
+context first, evidence appended last, query/turn last of all") rather than
+assuming a transcript-shaped stable prefix — this is the one place the
+shared shape carries a technical requirement, not only an architectural
+preference.
+
+**Reconciled against `PORTFOLIO.md` §5 — this ruling does not cut across
+it.** §5 governs CODE ARTEFACTS: "zero shared code by default,"
+copy-then-diverge with provenance hashing, and package extraction "deferred
+until the same fix lands in two repos more than once (expected: never)."
+This entry rules the SHAPE of an interface inside 1.x's own C2 codebase; it
+grants NO license to extract a shared package, share a deployment, or share
+a corpus between 1.x and 2.x. A future reader must not read "shared shape"
+as "shared package" — §5 continues to forbid the latter. What is shared is
+the discipline that a second caller, if one is ever built, calls a
+`/respond`-like endpoint that already has a place for `corpus_id` and `mode`
+to go, nothing more.
+
+**Explicitly NOT decided by this entry:** whether a 2.x chat caller will
+ever actually be built against this interface; whether 1.x and 2.x would
+ever share a corpus (DR-008/DR-009's corpus content is 1.x-specific and nothing
+here changes that); and code ownership, which stays governed by §5 as
+written.
+
+This entry is an append; no prior entry above is edited, per the append-only rule for
+this file.

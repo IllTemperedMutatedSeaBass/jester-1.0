@@ -2,6 +2,27 @@
 
 ## Open
 
+- **D1 retrieval can now be scoped against a settled corpus/trigger design
+  (thread 1.0.12, DR-029 through DR-032).** Buildable now: Tier 1 trigger
+  path (DR-008, unchanged), Tier 2a substantiation-only path (DR-008/DR-029,
+  unchanged), and a C2 request shape that carries `corpus_id` + `mode` with
+  evidence appended after the rolling transcript (DR-032). Left open before
+  build, in priority order: (1) fix a fire-rate bar for Tier 2b derived-
+  criteria evaluation per WAYS_OF_WORKING §7 BEFORE running that experiment
+  (DR-029) — nothing on this path may be built until the bar exists; (2)
+  decide whether Tier 2b evaluation lives in C3 or C2, which needs a per-
+  criterion latency measurement against C3's gate budget (DR-029, DR-006);
+  (3) decide who signs off that a derived criterion is transformed enough
+  to not be a derivative work (DR-029) — a legal call, not an engineering
+  one; (4) build the ingest step's provenance/type/supersession/licensing
+  capture and its three-way (Tier-1 / Tier-2 / reject) outcome before the
+  DHI corpus can be classified (DR-031); (5) no purge mechanism exists for
+  the box between sessions — DR-030's isolation posture is ruled as intent
+  only, and the retention surfaces it names (logs, KV cache/ollama state,
+  temp files) are unaddressed. Building D1 retrieval before (5) is closed
+  means real session material accumulates on the box with no removal path.
+
+
 - **D0's rolling transcript is human-side-only and never truncated, and
   there is no retrieval yet -- a short, repetitive spoken script (e.g. a
   20-turn timing-calibration run saying "this is turn N" each time)
