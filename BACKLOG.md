@@ -22,6 +22,25 @@
   temp files) are unaddressed. Building D1 retrieval before (5) is closed
   means real session material accumulates on the box with no removal path.
 
+- **The vector store to build D1 retrieval against is now specified
+  (thread 1.0.12, DR-033).** Buildable now: Chroma, in a persistence
+  directory distinct from 2.x's own (an env var, not yet wired), embeddings
+  via `nomic-embed-text` pinned to blob digest
+  `sha256-970aa74c0a90ef7482477cf803618e776e173c007bf957f635f1015bfcfef0e6`
+  rather than the mutable `:latest` tag, and an ingest pipeline that is a
+  COPY of 2.x's conversion code (pdfplumber/python-docx/python-pptx/
+  openpyxl/beautifulsoup4/olefile/pytesseract) with a recorded fork-commit
+  provenance hash — not a shared package, not a live dependency on
+  `jester-2.1`. Left open before build: (1) the store must record the
+  embedding-model digest it was built with, so a later tag move is
+  detectable at store-open time rather than silently corrupting similarity
+  results — the check mechanism itself is not designed yet; (2) the
+  embedding model's fitness for 1.x's retrieval task on its merits is still
+  fully open (`nomic-embed-text` is adopted here as the incumbent for
+  convenience, not evaluated) — SEED §8 q2 carries this forward unclosed;
+  (3) the copy-then-diverge fork point/commit for the ingest pipeline has
+  not been chosen or hashed yet.
+
 
 - **D0's rolling transcript is human-side-only and never truncated, and
   there is no retrieval yet -- a short, repetitive spoken script (e.g. a

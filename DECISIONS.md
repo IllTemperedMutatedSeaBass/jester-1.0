@@ -1299,5 +1299,119 @@ ever share a corpus (DR-008/DR-009's corpus content is 1.x-specific and nothing
 here changes that); and code ownership, which stays governed by §5 as
 written.
 
+### DR-033 — VECTOR STORE AND EMBEDDING POSTURE ACROSS STREAMS: SAME TECHNOLOGY, SAME EMBEDDING MODEL, PINNED BY DIGEST — SEPARATE PERSISTENT DIRECTORIES, NO SHARED COLLECTIONS; INGEST-CODE REUSE IS COPY-THEN-DIVERGE, NOT SHARED (2026-09-07)
+
+**Why this follows DR-032, filed alongside it in the same home.** DR-032
+rules C2's retrieval interface shared-shaped from the outset but does not
+say what sits behind that interface. 2.x already runs ChromaDB with
+`nomic-embed-text` on this box; 1.x needs a store. "Reuse ChromaDB" collapses
+three genuinely separate propositions, and only some are safe. Each is ruled
+separately, deliberately, so a future reader cannot flatten them back
+together:
+
+**(a) REUSE THE TECHNOLOGY — RULED YES.** Both streams use Chroma as the
+vector-store engine. This is a technology choice, not a data-sharing
+decision, and carries none of DR-008's risk on its own — an engine is not a
+corpus.
+
+**(b) REUSE THE STORE — RULED NO. Separate persistent directories per
+stream; no shared collections, ever.** Reasoning, tested against what is
+actually filed rather than asserted fresh:
+  - **Concurrency is not the risk.** DR-004 already rules 1.x and 2.x
+    mutually exclusive on this box — "switchable... NEVER running
+    concurrently" — so nothing contends for a store at the storage-engine
+    level. A shared store would not corrupt from concurrent writers, because
+    there are none. That is not the argument for separation.
+  - **The actual risk is DR-008's, and DR-008 as filed supports this reading
+    directly, not by extension.** DR-008 states the two-tier corpus "must
+    NOT be blended into one index" and structures Tier 1/Tier 2 as "two
+    separate collections with two retrieval paths" — verified against
+    DR-008's text in `jesterai/DECISIONS.md`, not assumed. That ruling is
+    about 1.x's OWN internal tiers; a shared store between 1.x and 2.x is
+    the same failure mode one level up. A shared Chroma instance turns
+    "2.x's audit corpus must never surface in a 1.x board meeting" from an
+    IMPOSSIBILITY (separate stores, nothing to misconfigure) into a
+    CONFIGURATION ERROR (one store, a wrong or missing collection filter).
+    DR-008's own rationale — a large, generic, lexically-overlapping corpus
+    always returns a nearest-neighbour chunk, and that is what turned 4 of 6
+    correctly-Absent 2.x records into false positives — applies with equal
+    or greater force to 2.x's entire audit corpus leaking into a 1.x
+    retrieval call by way of a shared collection.
+  - **It cuts against this session's own DR-030.** DR-030 rules isolation —
+    box purged between sessions, session material contained — as the
+    data-handling posture. A vector store that persists across streams and
+    sessions is a standing exception to "the box is purged between
+    sessions" by construction: if session material lives on in a store that
+    survives the session that created it, DR-030's isolation claim is not
+    true of that surface. Separate per-stream directories at least confine
+    the exception to a named, inspectable location rather than one shared
+    store neither stream fully owns.
+  - **The cost of separation is close to free.** One environment variable
+    (a `CHROMA_PERSIST_DIR`-shaped setting) pointing 1.x's store at its own
+    directory, distinct from 2.x's. Against DR-008's measured failure mode
+    and DR-030's isolation claim, this is not a real tradeoff.
+
+**(c) REUSE THE INGEST CODE — RULED: COPY-THEN-DIVERGE, NOT SHARED, NOT
+EXTRACTED.** 2.x's existing document-conversion pipeline (pdfplumber,
+python-docx, python-pptx, openpyxl, beautifulsoup4, olefile, pytesseract) is
+a real, working asset and re-implementing it from scratch for 1.x would be
+wasted effort for no safety gain — none of DR-008's or DR-030's risk lives
+in the ingest/conversion step, only in the store and the trigger logic
+downstream of it. Reconciled directly against `PORTFOLIO.md` §5 and
+`WAYS_OF_WORKING.md` §12, already the standing cross-stream code-sharing
+rule and not cut across here: "copy-then-diverge, provenance-hashed" —
+1.x takes a COPY of 2.x's ingest code, records a fork-commit provenance
+hash, and diverges from there; it is not a shared package, not a live
+dependency on `jester-2.1`, and not a newly-extracted common library. §5's
+own stated position — "shared-package extraction is deferred until the same
+fix lands in two repos more than once (expected: never)" — is not
+overridden by this entry. DR-012 already established this exact pattern for
+any 2.x asset 1.x reuses ("copy-then-diverge with a provenance hash — never
+shared"); this entry applies that established pattern to the ingest
+pipeline specifically rather than inventing a new one.
+
+**THE EMBEDDING PIN — the non-obvious failure mode, ruled explicitly.** The
+embedding model must be IDENTICAL, and pinned by DIGEST rather than a
+mutable tag, across any store that may ever be compared or merged — this is
+DR-020's tag-and-digest principle (a mutable `:latest` tag can silently move
+underneath a pinned deployment) applied to embeddings rather than to the
+reasoning model. The failure mode is worse here than DR-020's original case:
+if `nomic-embed-text:latest` moves to a new checkpoint after a store already
+has vectors written against the old one, every existing vector is silently
+invalidated — there is no error at write time (Chroma has no way to know the
+embedding function changed) and no error at read time (similarity search
+still returns SOME nearest neighbour, just against a corrupted space) DR-008's
+own "there is ALWAYS a nearest-neighbour chunk" applies here too: the
+failure is invisible precisely because the system keeps answering.
+
+Digest recorded, as currently pulled on this box: `ollama show --modelfile
+nomic-embed-text:latest` resolves to blob
+`sha256-970aa74c0a90ef7482477cf803618e776e173c007bf957f635f1015bfcfef0e6`
+(the same blob-vs-registry-manifest digest distinction DR-020 already
+established for the reasoning model applies here too — `ollama list` shows a
+separate, shorter registry-manifest identifier, `0a109f422b47`, for the same
+tag; the blob digest above is the one that identifies the actual weights and
+is the one to pin).
+
+**RULED: any vector store built for either stream records the embedding
+model digest it was built with** (e.g. as store metadata or a sidecar file
+next to the persistence directory), so a mismatch between a store's recorded
+digest and the currently-pinned embedding model is DETECTABLE at
+store-open time, rather than silently returning corrupted similarity
+results. The mechanism for this check is not designed in this entry — only
+that one must exist before a store is trusted across a model-tag change.
+
+**What this entry does NOT decide.** It does not choose the embedding model
+on its merits. `nomic-embed-text` is the INCUMBENT already pulled and in use
+by 2.x on this box — adopted here for convenience of not introducing a
+second embedding model alongside a second vector-store technology, not
+because it has been evaluated against alternatives for 1.x's retrieval
+task. `SEED_jester-1.0.md` §8 q2 already carries "the embedding-model and
+vector-store choices also remain open" and that remains true after this
+entry — (a) above settles the STORE TECHNOLOGY only (Chroma), not the
+embedding model's fitness. Stated plainly so convenience is not later
+misread as evaluation: revisiting the embedding-model choice on its merits
+is still open work, not foreclosed by adopting the incumbent now.
+
 This entry is an append; no prior entry above is edited, per the append-only rule for
 this file.
