@@ -2,6 +2,61 @@
 
 ## Open
 
+- **D1 retrieval is wired into C2 and measured; C3 trigger logic is now the
+  next build (thread 1.0.14, DR-035/DR-036/DR-037).** C2 answers questions
+  from the corpus over the headset: `retrieval.py` implements DR-032's
+  interface shape and DR-008's separate paths, and `retrieval_s` is a full
+  member of the Bar B partition. **WHAT C3 MUST NOW DO, which this thread
+  deliberately did not build:** (1) C3 has no trigger logic at all — it must
+  decide WHEN to speak unprompted, which is a different problem from the
+  question-answering path built here, and DR-008's "Tier 1 is the ONLY
+  trigger source" binds it absolutely; (2) C3 must NOT reuse this thread's
+  `intent="question_answering"` path — the unassigned collection is
+  reachable only under that intent by DR-035's ruling, and a trigger caller
+  carries a different intent and is rejected before it reaches that path.
+  That rejection is asserted by test and must stay asserted; (3) C3 must fix
+  a fire-rate bar BEFORE it is built, per WAYS_OF_WORKING §7 and DR-029 —
+  DR-008's whole rationale is that the product's value is knowing when to
+  stay SILENT, and a trigger path with no fire-rate bar cannot be evaluated
+  against that; (4) the tier-assignment skew (41 of 46 documents UNASSIGNED,
+  DR-034) is deferred to the C3 thread by operator ruling and lands there,
+  not here — Tier 1 holding 5 documents is tolerable for question-answering
+  because DR-035 opened a separate read path over the unassigned material,
+  but a trigger path has no such fallback and fires off Tier 1 alone;
+  (5) C3 must carry its own latency budget — retrieval already costs ~1.4 s
+  at C2 (DR-037) and DR-017's 8 s kill switch is measured end to end.
+
+- **DR-013(b)'s truncation policy is now an OPERATOR DECISION with the
+  evidence assembled, not an open research question (thread 1.0.14,
+  DR-036).** Measured: retrieval adds a CONSTANT ~794-token offset (not a
+  growing one — evidence is never accumulated into the transcript), costing
+  roughly 4 minutes of a ~43-minute meeting window. Four options are
+  written up with their evidence in DR-036 (drop evidence first / truncate
+  the transcript front / raise `num_ctx` / lower `top_k`); none is adopted.
+  **Blocking sub-item, worth its own line because it is a live defect
+  rather than a design question:** an overflow currently TERMINATES THE
+  WHOLE RUN rather than degrading one turn — `PromptOverflowError` becomes
+  a FastAPI 500 and `c5_orchestrator.main.run_turn`'s `raise_for_status()`
+  is caught by nothing, so a real meeting would see Jester go permanently
+  silent mid-session. Not fixed in 1.0.14 because the honest fix depends on
+  which truncation policy is chosen.
+
+- **DR-013(a)'s constraint buys back less than expected at D0, and this
+  will change as transcripts lengthen (thread 1.0.14, DR-037).** G1 measured
+  a ~5,000-token stable prefix with ~200 tokens appended; D0 runs the
+  INVERSE ratio (~110-token stable prefix, ~800 tokens of fresh evidence
+  every turn), so the cache hits but has little to hit. The constraint is
+  not weakened and must not be relaxed — violating it still returns first
+  audio to the 5-11 s regime — but re-measure the prefill split once real
+  meeting-length transcripts exist, because the economics move in
+  DR-013(a)'s favour as the transcript grows.
+
+- **The pre-1.0.14 Bar B logs need `--allow-missing-retrieval` to
+  re-decompose.** Runs recorded before the retrieval stage existed have no
+  retrieval events. The flag is deliberately opt-in and must never be used
+  on a retrieval-enabled run: it would report `retrieval_s` as 0.0 and
+  silently understate exactly the cost the stage was added to measure.
+
 - **Ingest built and run against the real DHI corpus (thread 1.0.13,
   DR-034); retrieval is NOT wired into C2 yet.** 46 documents ingested from
   `/mnt/jester_in` into 1.x's own Chroma store

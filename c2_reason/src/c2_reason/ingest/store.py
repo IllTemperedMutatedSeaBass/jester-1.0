@@ -28,7 +28,13 @@ from pathlib import Path
 import chromadb
 import ollama
 
-from .ingest_config import IngestConfig
+# NOTE (thread 1.0.14): `IngestConfig` used to be imported here and was
+# never referenced. It reads required env vars at class-definition time,
+# so the unused import made merely IMPORTING this module fail unless the
+# INGEST environment was set. C2's serving path now reads this same store
+# (retrieval.ChromaRetriever) and takes its persist dir / digest from
+# `config.Config` instead, so the import is removed: every value this
+# module needs is already passed in as an argument by its caller.
 
 _DIGEST_SIDECAR = "embedding_digest.json"
 

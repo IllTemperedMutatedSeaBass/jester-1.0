@@ -11,6 +11,10 @@ class Config:
     C4_HOST = os.environ.get("C4_HOST", "127.0.0.1")
     C4_PORT = int(os.environ.get("C4_PORT", "8004"))
     TURN_COUNT = int(os.environ.get("C5_TURN_COUNT", "10"))
+    # DR-032: the caller declares the corpus it is asking about. Same env
+    # var C2 reads, so a divergence is a misconfiguration of one variable
+    # rather than two independently-wrong values.
+    CORPUS_ID = os.environ.get("C2_CORPUS_ID", "dhi")
     # Per-turn wait for C1's /transcribe to return, i.e. how long a human
     # has to notice the "SPEAK NOW" prompt and speak before C5 gives up on
     # the turn. C1's own VAD wait is unbounded (capture.py: wait_for_utterance

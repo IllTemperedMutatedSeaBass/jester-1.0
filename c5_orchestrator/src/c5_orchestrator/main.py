@@ -42,6 +42,14 @@ def run_turn(config: Config, client: httpx.Client) -> None:
             "turn_id": turn_id,
             "speaker": "human",
             "text": transcript_data["transcript"],
+            # DR-032's shared-shape fields, sent explicitly rather than
+            # left to C2's defaults: the point of the two fields is that a
+            # caller declares which corpus and which caller-shape it is,
+            # and C2 rejects a mismatch. Defaulting them at both ends
+            # would leave nothing to disagree.
+            "corpus_id": config.CORPUS_ID,
+            "mode": "meeting_spoken",
+            "intent": "question_answering",
         },
         timeout=60.0,
     )

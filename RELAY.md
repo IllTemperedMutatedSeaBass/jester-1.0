@@ -1731,3 +1731,189 @@ was read from origin after an independent `git fetch origin`, checking the
 thread's DR-034 entry, BACKLOG.md update, and this STOP report together in
 one commit (the push was blocked twice by the Claude Code auto-mode
 classifier and completed only after the operator ran it manually).
+
+---
+
+## STOP REPORT — Thread 1.0.14 (D1 retrieval: wire the corpus into C2) — 2026-09-07
+
+**Machine authority.** Verified before any work: `hostname` `jesterai`,
+`whoami` `jester`, `pwd` `/home/jester`, `/home/jester/jester-1.0` present.
+No divergence; nothing deferred on machine-authority grounds.
+
+**Branch authority.** No harness branch was assigned. Worked on `main`, the
+branch the prompt names. No conflict to record.
+
+**Task 1 — repos clean and level, and what the named DRs bind.** Both repos
+were clean and level with origin after an independent `git fetch origin`
+(SHAs in prose below and listed again at the end). Read in full before
+writing: DR-013 (both carried G1 constraints), DR-008, DR-024, DR-032,
+DR-033, DR-034. What each binds on this session: **DR-013(a)** — evidence
+appended strictly AFTER the rolling transcript, the session's single most
+important constraint and one that fails silently; proven by test and by
+live run, not by inspection. **DR-013(b)** — `num_ctx` 8192 with truncation
+UNDECIDED; measured in Task 3, not decided. **DR-008** — Tier 1 and Tier 2
+as separate collections with separate retrieval paths, never blended; Tier
+2 queried only after Tier 1 flags a candidate. **DR-024** — `/api/generate`
+with `raw: true` and hand-rendered Gemma turn markers, with the turn-close
+markers as a fixed suffix after the evidence-extended transcript; untouched
+by this session's changes. **DR-032** — `corpus_id` and `mode` on the
+request, retrieval behind an interface rather than inlined, and the
+dead-parameter cost mitigated. **DR-033** — 1.x's own Chroma persist
+directory, embedding model pinned by digest with a mismatch detectable at
+store-open. **DR-034** — the corpus as ingested: 46 documents, 622 chunks,
+5 Tier 1 and 41 unassigned, with tier skew deferred to the C3 thread.
+
+**Task 2 — retrieval wired into C2.** New `c2_reason/src/c2_reason/retrieval.py`
+(`Retriever` protocol, `ChromaRetriever`, `NullRetriever`, `format_evidence`),
+called from `main.respond()` behind that interface. Question-answering only:
+the user asks, Jester retrieves and answers. No trigger logic, no unprompted
+speech. Three named paths over four separate collections per DR-008, with
+Tier 2 consulted only after Tier 1 returns a candidate — asserted in both
+directions by test. Tier 2a/2b are empty on this box, so that path is
+exercised by the code and returns nothing from real data; recorded in
+DR-034's own language, with no claim it works untested. `corpus_id` and
+`mode` are validated against C2's configured values and a mismatch fails
+loudly — DR-032 named the dead-parameter risk explicitly and this check is
+the mitigation it asked for. Ruled and filed as **DR-035**: the unassigned
+collection is readable on an explicit user question, as a separate path,
+gated on intent, never blended into the Tier 1 query — DR-008's Tier-1
+restriction is TRIGGER-scoped by its own words ("THIS IS THE ONLY TRIGGER
+SOURCE. C3 fires off Tier 1") and DR-031's safe default is
+"non-triggering," not "unreadable." Without that ruling Jester could answer
+from 5 of 46 documents. Tier assignment itself was not revisited.
+
+**The ordering proof, built as a test rather than left to inspection.**
+`c2_reason/tests/test_prompt_ordering.py` asserts the property that
+actually makes the KV cache hit — turn N+1's prompt has turn N's
+preamble-plus-transcript region as a LITERAL PREFIX, computed as the
+longest common prefix of consecutive prompts — across a four-turn sequence,
+with no evidence, and with evidence that differs in content and length
+every turn. A string-index ordering check would have been little better
+than reading the code. **The test was mutation-checked, not merely run:**
+evidence was temporarily moved to the front of the prompt and the suite
+failed as it should (2 failed), then the change was reverted and all tests
+passed again. A separate test asserts evidence is never accumulated back
+into the transcript, which is the silent-divergence variant of the same
+bug. 15 tests pass in `c2_reason`, 14 in `c4_speech`.
+
+**Task 3 — the context problem, measured and NOT silently decided (DR-036).**
+Tool committed as `c2_reason/context_budget.py` so the figures can be
+re-derived. **Retrieval adds a CONSTANT offset, not a growing one** —
+evidence is rebuilt fresh each turn and never accumulated, so only the
+transcript term grows; the naive worry that retrieved documents compound
+against a rolling transcript does not hold for this design. Typical
+retrieval adds a median 794 estimated tokens (min 636, max 1653) at
+`top_k` 3 per path; 302 at `top_k` 1 and 549 at `top_k` 2. Live turns
+appended 702–1010 evidence tokens against total prompts of 867–1163 — i.e.
+evidence is roughly 80% of the whole prompt at D0 transcript lengths.
+Projected to continuous meeting speech at a STATED, UNMEASURED assumption
+of 190 tokens/minute: 42.8 minutes to overflow without retrieval, 38.6 at
+median evidence, 34.1 at maximum — retrieval costs about 4 minutes of
+meeting window. The without-retrieval figure landing inside DR-013(b)'s own
+independently-stated "30-45 minutes" is a cross-check on that assumption.
+**The overflow failure is worse than "it raises loudly," and the operator
+needs this before the spoken run:** `PromptOverflowError` becomes a FastAPI
+500 and `c5_orchestrator.main.run_turn`'s `raise_for_status()` is caught by
+nothing, so an overflow TERMINATES THE WHOLE RUN rather than degrading one
+turn. At the measured numbers a twenty-turn run is nowhere near the ceiling,
+so this thread's hand-over is not at risk; a real meeting is. **No
+truncation policy is invented.** DR-036 states plainly that this needs an
+operator decision and records four options with the evidence for each,
+including the non-obvious one: truncating the transcript from the front
+invalidates the cached prefix on the turn it happens, costing a full cold
+prefill — on the order of 10 seconds of first-audio latency for that single
+turn, one turn well past DR-017's kill switch.
+
+**Task 4 — the cost measured, and the stage boundary re-anchored so it
+could be (DR-037).** Bar B's `c2_prefill_s` starts at the `prefill_start`
+log line, which was the first statement in `respond()`. Retrieval placed
+after it would have had its entire cost absorbed into `c2_prefill_s` with
+the new stage reading zero and nothing raising. `retrieval_start` is now
+first and `prefill_start` is logged only after `retrieval_done`;
+`retrieval_s` is a full member of `_PARTITION_STAGES`, and both retrieval
+events are emitted on every turn including when retrieval is off, so no
+turn is silently dropped from the sample. Verified rather than assumed: the
+smoke run showed no turn with more than 50 ms of unattributed time between
+`retrieval_done` and `prefill_start`, and the pre-retrieval baseline
+re-decomposes with `partition_gap_median_s` 0.0057 s.
+
+**Smoke test run and reported, as asked.** `ops/smoke_retrieval.py`, four
+turns, non-interactive, no headset — PASSED. Every turn retrieved 6 chunks
+from the live store and C2 replied; ~702–1010 evidence tokens per turn;
+~3.0 s per C2 call. Jester answered from the corpus and, where the corpus
+did not contain the answer, said so ("The records don't specify a
+resolution on the ERP upgrade program itself") rather than confabulating —
+noted as an observation from four turns, explicitly not a quality claim.
+
+**The cost, measured like-for-like on the SAME BUILD** (`C2_RETRIEVAL_ENABLED`
+exists so this is one commit, not two): retrieval stage 0.0001 s off versus
+**0.028–0.074 s** on; C2 prefill **0.210–0.294 s off versus 1.480–1.980 s
+on**; `prompt_eval_count` 125–167 off versus 867–1163 on. **Retrieval costs
+about +1.4 s per turn at C2, and only ~3% of that is the embed-and-query
+work everyone would call "retrieval" — the other ~97% is prefilling the
+appended evidence tokens.** DR-037 records why the cached prefix saves so
+little here without this being a DR-013(a) violation: G1 measured a
+~5,000-token stable prefix with ~200 appended, and D0 runs the inverse
+ratio, so the cache hits but has almost nothing worth hitting. The
+constraint is not weakened and must not be relaxed; its value grows with
+transcript length.
+
+**Task 5 — NOT YET DONE, and honestly so.** The end-to-end T_ttfa median and
+p90 with the retrieval stage broken out needs the operator on the headset.
+The command is handed over below and the run is not driven from chat. On
+the operator's return the figure will be computed with live carve, kernel,
+model digest and embedding digest recorded alongside it, compared against
+D0's 3.076 s / 4.959 s, and DR-017's 8 s kill switch applied — and if it
+fires it will be reported as a result and a decision point for the
+operator, not optimised away.
+
+**A disagreement recorded rather than resolved in my own favour.** The
+prompt's carried state gives D0's anchor as 3.076 s / 4.959 s. Re-decomposing
+`logs/run_20260907T095156Z` with this session's harness yields 2.705 s /
+4.987 s. I have NOT substituted my figure for the operator's: DR-028 held
+that run's figure provisional pending a clean re-run, and I cannot tell from
+the logs alone which run 3.076 came from. The comparison in Task 5 will be
+stated against 3.076 s / 4.959 s as instructed, with this discrepancy
+flagged alongside it rather than quietly reconciled.
+
+**One incidental defect found and fixed.** `ingest/store.py` imported
+`IngestConfig` and never used it; `IngestConfig` reads required env vars at
+class-definition time, so the unused import made importing the store module
+fail unless the ingest environment was set — which broke C2's serving path
+the moment it read the same store. Import removed.
+
+**jester-2.1 was NOT read this session.** Unlike thread 1.0.13, no
+copy-then-diverge was required — the retrieval wiring is new code, not a
+port of a 2.x asset — so DR-033(c) created no tension with the read-only
+scope this time. Only `git rev-parse HEAD` was run against it.
+
+**Untouched-repo proof.** `jester-2.1` HEAD, read-only, was
+c41dc92fd121dafaae39a50d68e7aa91e73f9756 before this thread's work and
+c41dc92fd121dafaae39a50d68e7aa91e73f9756 after, by two independent
+`git -C /home/jester/jester-2.1 rev-parse HEAD` calls;
+`git -C /home/jester/jester-2.1 status --porcelain` returned empty both
+times. `jesterai` was not written this session — no box-level finding
+required filing — and its HEAD was
+605de619019651f53a818b83c848036a91bd72e8 throughout, with an empty
+`status --porcelain`. `HeathenS_Talkings`: **stated absence** — no such
+directory exists on this box; `ls /home/jester` carries no entry of that
+name and `ls -d /home/jester/HeathenS_Talkings` returns "No such file or
+directory". Not touched, because it is not here. `/mnt/jester_in` was not
+written; this session read only the Chroma store built from it.
+
+### SHAs stated in this report (full 40 characters, in prose)
+
+`jester-1.0` local HEAD and origin/main, read after an independent
+`git fetch origin` checking the `origin/main` ref, were both
+2d81684418e151e99c606d6b510aabecd94f288e at the start of this thread.
+`jesterai` local HEAD was 605de619019651f53a818b83c848036a91bd72e8
+throughout this thread and, since jesterai was not written, that is also
+its close. `jester-2.1` HEAD, read-only, was
+c41dc92fd121dafaae39a50d68e7aa91e73f9756 both before and after this
+thread's work.
+
+### Proof-of-push
+
+Pending: recorded in an addendum immediately below, after this entry is
+committed, pushed, and its hash independently re-verified against
+`origin/main` following a fresh `git fetch origin`.

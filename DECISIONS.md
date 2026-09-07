@@ -1504,3 +1504,245 @@ resolved in favour of the more specific, later-cited requirement
 
 This entry is an append; no prior entry above is edited, per the append-only rule for
 this file.
+
+## 2026-09-07 — Thread 1.0.14: D1 retrieval wired into C2
+
+### DR-035 — D1 RETRIEVAL WIRED INTO C2: INTERFACE SHAPE AS BUILT, AND A THIRD READ PATH OVER THE UNASSIGNED COLLECTION RULED IN FOR QUESTION-ANSWERING ONLY (DR-008'S TIER-1 RESTRICTION IS TRIGGER-SCOPED, AND IS PRESERVED, NOT RELAXED) (2026-09-07)
+
+**Built, per DR-032's interface-shape ruling.** New module
+`c2_reason/src/c2_reason/retrieval.py`: a `Retriever` protocol with a
+`ChromaRetriever` implementation and a `NullRetriever`, called from
+`main.respond()` behind that interface rather than inlined.
+`RetrievalRequest` carries `corpus_id`, `mode`, `query` and `intent`;
+`RespondRequest` gains the same fields and C5 sends them explicitly rather
+than relying on C2's defaults at both ends.
+
+**DR-032's dead-parameter cost is mitigated, not merely accepted.** DR-032
+named the cost honestly — the two fields "can be mis-set with nothing to
+catch it until a second caller exists to disagree." `ChromaRetriever._validate`
+rejects a `corpus_id` that does not match C2's configured corpus and an
+unimplemented `mode`, following `config.py`'s own fail-loudly convention
+(DR-020). `MODE_CHAT` exists as a named constant and raises
+`UnsupportedModeError`: an unimplemented mode that fails loudly is honest,
+one that silently behaves like the other is not. Covered by
+`tests/test_retrieval.py`.
+
+**DR-008's separate paths, built as three named paths over four separate
+collections, never one blended index.** Path 1 queries `tier1`. Path 3
+queries `tier2a`/`tier2b` ONLY when Path 1 returned at least one candidate
+— DR-008's "Queried ONLY after Tier 1 has flagged a candidate, to confirm
+and cite. NEVER a trigger source on its own" — and is asserted in both
+directions by test. Both Tier 2 collections are empty on this box (DR-034:
+zero documents tiered into either), so Path 3 is exercised by the code and
+returns nothing from real data. Recorded in DR-034's own language: the path
+exists, it is not exercised by real data, and no claim is made that it works
+untested.
+
+**THE RULING THAT NEEDED MAKING — Path 2, the unassigned collection.**
+DR-034 tiered 5 of 46 documents TIER1 and 41 UNASSIGNED. Had retrieval
+queried Tier 1 alone, Jester could answer from 5 of 46 documents and this
+thread's twenty-turn spoken run would have measured a system that mostly
+retrieves nothing. The discriminating question is whether DR-008's Tier-1
+restriction is scoped to TRIGGERING or to ALL RETRIEVAL. Checked against
+DR-008's own text rather than assumed: "THIS IS THE ONLY TRIGGER SOURCE.
+C3 fires off Tier 1." That is trigger-scoped. DR-031's safe default for an
+unassigned document is "non-triggering," not "unreadable."
+
+RULED: the unassigned collection is readable on an EXPLICIT USER QUESTION,
+as a separately named path against its own collection, gated on
+`intent == "question_answering"`, and never blended into the Tier 1 query.
+This grants C3 nothing whatsoever — a trigger-scanning caller carries a
+different intent and is rejected before the path is reached, which is
+asserted by test (`test_unassigned_path_is_gated_on_question_answering_intent`).
+DR-008's measured rationale is preserved exactly: its finding is that a
+large generic corpus makes Jester a chatterbox by always yielding a
+nearest-neighbour chunk to FIRE ON. Answering a question a human actually
+asked is not firing. This entry does not revisit tier assignment, which is
+deferred to the C3 thread by operator ruling.
+
+**The ordering question DR-032 raised, answered explicitly.** DR-032 asked
+that the ordering discipline be expressed mode-independently, illustrated
+by "stable context first, evidence appended last, query/turn last of all."
+That phrasing is an `e.g.`, not a mandate to move the current turn's text
+after the evidence. The shape built keeps the question inside the
+transcript region: transcript-including-the-question -> evidence ->
+recency reminder -> Gemma turn-close markers. Moving the question after the
+evidence would change the accumulation invariant that DR-027's preamble-leak
+mitigation and the entire existing Bar B baseline were measured against, for
+no measured benefit. Recorded so a future reader does not read the
+divergence from DR-032's illustration as an oversight.
+
+**One incidental defect found and fixed.** `ingest/store.py` imported
+`IngestConfig` and never used it. `IngestConfig` reads required env vars at
+class-definition time, so the unused import made merely IMPORTING the store
+module fail unless the INGEST environment was set — which broke C2's
+serving path the moment it read the same store. Import removed; every value
+the module needs was already passed in by its caller.
+
+This entry is an append; no prior entry above is edited, per the append-only rule for
+this file.
+
+### DR-036 — DR-013(b)'s CONTEXT PROBLEM MEASURED, NOT DECIDED: RETRIEVAL ADDS A CONSTANT ~794-TOKEN OFFSET RATHER THAN A GROWING ONE, COSTING ~4 MINUTES OF THE MEETING WINDOW; THE OVERFLOW FAILURE KILLS THE WHOLE RUN RATHER THAN DEGRADING ONE TURN — A TRUNCATION POLICY IS STILL THE OPERATOR'S DECISION AND IS NOT INVENTED HERE (2026-09-07)
+
+**This entry deliberately does NOT decide a truncation policy.** DR-013(b)
+left it UNDECIDED and called it a design question, not a tuning detail.
+This thread was instructed to either propose a policy with its reasoning or
+state plainly that it needs an operator decision, and to record the
+evidence either way. It states the latter, and records the evidence. The
+tool that produced these figures is committed as
+`c2_reason/context_budget.py` so they can be re-derived, not taken on trust.
+
+**FINDING 1 — the structural point, and it is not the one the framing
+anticipated. Retrieval adds a CONSTANT offset, not a growing one.**
+Retrieved evidence is rebuilt fresh every turn from that turn's query and is
+never written back into the rolling transcript
+(`tests/test_prompt_ordering.py::test_evidence_is_never_accumulated_into_the_transcript`
+asserts this directly, because the accumulating version of this bug would
+diverge the cached prefix every turn with nothing raised). The prompt at
+turn N is therefore preamble + transcript(1..N) + evidence_N, where only
+the transcript term grows. Retrieval brings the overflow point closer by a
+fixed amount; it does not make the meeting fill the window faster. Naive
+worry — "retrieved documents joining a rolling transcript compound" — does
+not hold for this design, and the reason it does not hold is a property
+worth protecting deliberately.
+
+**FINDING 2 — how many tokens a typical retrieval adds, measured against
+the live store.** Ten realistic board questions spanning both populated
+collections, `top_k` 3 per path (6 chunks per query: 3 Tier 1, 3
+unassigned, 0 Tier 2). Estimated evidence tokens (this repo's chars/4
+estimator): median 794, min 636, max 1653. Measured at other settings for
+the operator's benefit: `top_k` 1 gives median 302 (max 674), `top_k` 2
+gives median 549 (max 1018). Live turns in this thread's smoke run appended
+702–1010 evidence tokens against Ollama-reported total prompts of 867–1163
+tokens — i.e. evidence is roughly 80% of the entire prompt at D0
+transcript lengths.
+
+**FINDING 3 — how close a realistic session comes to the limit.** Two
+different projections, kept separate because they answer different
+questions and one of them is nearly worthless on its own:
+  - From this repo's OWN measured Bar B runs (`prompt_eval_count` deltas in
+    `logs/run_20260907T095156Z` and `logs_1.0.10_backup`): 9–14 transcript
+    tokens per turn, giving 633 turns to overflow at median evidence versus
+    702 without retrieval. This figure is NOT to be relied on: Bar B turns
+    are short prompted calibration utterances, not continuous meeting
+    speech, and they understate real pressure by roughly an order of
+    magnitude. Recorded so nobody re-derives it later and mistakes it for
+    reassurance.
+  - Projected to continuous meeting speech at 190 transcript tokens per
+    minute (~130–160 words/min; STATED ASSUMPTION, the one un-measured
+    input in this entry and flagged as such in the tool's own output):
+    42.8 minutes to overflow without retrieval, 38.6 minutes at median
+    evidence, 34.1 minutes at maximum observed evidence. **Retrieval costs
+    roughly 4 minutes of meeting window at the current `top_k`.** The
+    without-retrieval figure of 42.8 minutes lands inside DR-013(b)'s own
+    independently-stated "30-45 minutes," which is a useful cross-check on
+    the assumption rather than a coincidence to lean on.
+
+**FINDING 4 — what the failure actually looks like, and it is worse than
+"it raises loudly."** Traced through the live call path, not inferred:
+`PromptBuilder.build()` raises `PromptOverflowError`, which propagates out
+of `main.respond()` as a FastAPI 500, which
+`c5_orchestrator.main.run_turn`'s `respond_resp.raise_for_status()` turns
+into an exception that nothing catches — neither `run_turn` nor `main()`'s
+turn loop. **An overflow does not degrade one turn; it terminates the
+entire run.** In a real meeting that is Jester going permanently silent
+mid-session with a stack trace on a terminal nobody is watching. This is
+recorded as a finding, not fixed here: making C5 swallow the error would be
+a truncation-adjacent behaviour change of exactly the kind DR-013(b)
+reserves to the operator, and the honest fix depends on which policy is
+chosen.
+
+**WHAT THE OPERATOR IS BEING ASKED TO DECIDE, and the evidence for each
+option** (recorded so the decision does not need this analysis re-run):
+  - (a) Drop evidence first when the window is tight. Cheapest — evidence
+    is a constant, droppable term and dropping it costs no transcript
+    history. Degrades Jester to a no-corpus assistant exactly when a long
+    meeting has accumulated the most context worth citing.
+  - (b) Truncate the transcript from the front, keeping the preamble. This
+    is the one that interacts with G1/DR-013(a): removing text from the
+    START of the prefix invalidates the cached prefix on the turn it
+    happens, so a full cold prefill is paid once per truncation. G1
+    measured cold prefill at 599 tokens/s, so a single ~8k truncation event
+    costs on the order of 10 seconds of first-audio latency on that turn —
+    one turn well past DR-017's 8-second kill switch, then back to normal.
+    Whether one such spike per ~35 minutes is acceptable is a product
+    decision, not a technical one.
+  - (c) Raise `num_ctx` above 8192. Untested on this box, changes the
+    memory profile against the 16 GiB carve, and is not free at D0.
+  - (d) Lower `top_k`. Buys back only ~4 minutes total (Finding 3) at a
+    direct cost in answer quality. It is a tuning knob, not a solution to
+    the window problem, and should not be mistaken for one.
+None of (a)-(d) is adopted here.
+
+This entry is an append; no prior entry above is edited, per the append-only rule for
+this file.
+
+### DR-037 — RETRIEVAL'S MEASURED COST AT THE C2 STAGE: THE EMBED+QUERY STAGE IS ~3% OF IT AND THE EVIDENCE-TOKEN PREFILL IS ~97%; THE BAR B DECOMPOSITION IS RE-ANCHORED SO THIS CANNOT HIDE (2026-09-07)
+
+**Why the stage boundary had to move before anything was measured.** Bar B
+computes `c2_prefill_s` as `prefill_done_monotonic_ts -
+prefill_start.monotonic_ts`, and `prefill_start` was the first statement in
+`main.respond()`. Any retrieval placed after that log line would have had
+its entire cost absorbed into `c2_prefill_s`, with the new retrieval stage
+reading as zero and nothing raising. `retrieval_start` is now the first
+statement in the handler and `prefill_start` is logged only after
+`retrieval_done`; `retrieval_s` is a full member of
+`bar_b_harness._PARTITION_STAGES`, not a footnote. Both retrieval events are
+emitted on EVERY turn including when retrieval is disabled or returns
+nothing, because `decompose_turn` drops any turn missing a required event
+and conditional logging would have biased the sample toward turns that
+happened to retrieve. Verified on the smoke run rather than assumed: no
+turn showed more than 50 ms of unattributed time between `retrieval_done`
+and `prefill_start`, and the pre-retrieval baseline logs re-decompose with
+`partition_gap_median_s` 0.0057 s.
+
+**MEASURED, like-for-like on the SAME BUILD.** `C2_RETRIEVAL_ENABLED`
+exists precisely so the with- and without-retrieval figures are not two
+different commits. Same four turns, same model
+(`gemma4-e4b-bakeoff:latest`, blob digest
+`sha256-90ce98129eb3e8cc57e62433d500c97c624b1e3af1fcc85dd3b55ad7e0313e9f`),
+same embedding model (`nomic-embed-text:latest`, blob digest
+`sha256-970aa74c0a90ef7482477cf803618e776e173c007bf957f635f1015bfcfef0e6`,
+reverified on this box this session and matching DR-033's recorded value),
+live 16 GiB carve:
+
+  - retrieval stage (embed + Chroma query): 0.0001 s OFF, **0.028–0.074 s
+    ON** (embed ~0.022–0.044 s, query ~0.0045–0.038 s).
+  - C2 prefill: **0.210–0.294 s OFF, 1.480–1.980 s ON.**
+  - Ollama `prompt_eval_count`: 125–167 OFF, 867–1163 ON.
+
+**THE FINDING: retrieval costs about +1.4 s per turn at C2, and only ~3% of
+that is the retrieval stage itself.** The embed-and-query work everyone
+would naturally call "the retrieval cost" is ~40 ms. The other ~1.4 s is
+prefilling the ~800 evidence tokens appended to the prompt, and it lands in
+`c2_prefill_s`, not in `retrieval_s`. Anyone optimising the vector search
+here would be optimising 3% of the problem.
+
+**WHY THE CACHED PREFIX SAVES SO LITTLE AT D0, AND WHY THIS IS NOT A
+DR-013(a) VIOLATION.** DR-013(a) is honoured exactly — evidence is appended
+strictly after the transcript, proven by test and by live micro-check, and
+the shared literal prefix holds turn over turn. But G1 measured a ~5,000-token
+stable prefix with ~200 tokens appended. D0 has the INVERSE ratio: a
+~110-token stable prefix (preamble plus a short rolling transcript) with
+~800–1,000 tokens of fresh evidence appended every turn. The cache hits;
+there is simply almost nothing in it worth hitting. **The value of
+DR-013(a)'s constraint grows with transcript length, and D0's transcripts
+are short.** This does not weaken the constraint — violating it would still
+force a full cold prefill and is still the 5-11 s regime — but it does mean
+the constraint is not, on its own, buying back what retrieval costs at this
+stage of the build. Recorded because the natural misreading of a good
+prefill number would be that evidence is cheap, and at D0 it is not.
+
+**What this entry does NOT yet contain.** The end-to-end T_ttfa median and
+p90 with retrieval, against DR-026's D0 anchor and DR-017's 8 s kill
+switch. That needs the operator on the headset for a twenty-turn spoken
+run, prepared and handed over by this thread and not driven from chat
+(relaying prompts through a turn-based channel distorts the measurement).
+The figure lands as its own entry on the operator's return. Projecting from
+the +1.4 s C2 delta alone would put the median near 4.5 s against an 8 s
+kill switch — that is an ARITHMETIC EXPECTATION, explicitly not a
+measurement, and it is recorded here only so a surprise in either direction
+is visible as a surprise.
+
+This entry is an append; no prior entry above is edited, per the append-only rule for
+this file.

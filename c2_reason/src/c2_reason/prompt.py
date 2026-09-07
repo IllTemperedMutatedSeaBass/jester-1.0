@@ -56,6 +56,18 @@ class PromptOverflowError(RuntimeError):
     pass
 
 
+# The single chars-per-token estimator used everywhere in this repo that
+# needs a token count without calling the model. It is an ESTIMATE, named
+# as one: the only exact figures come from Ollama's own
+# `prompt_eval_count`, which C2 logs per turn (main.respond) precisely so
+# the estimate can be checked against ground truth rather than trusted.
+CHARS_PER_TOKEN_ESTIMATE = 4.0
+
+
+def estimate_tokens(text: str, chars_per_token: float = CHARS_PER_TOKEN_ESTIMATE) -> int:
+    return int(len(text or "") / chars_per_token)
+
+
 STABLE_PREAMBLE = (
     "You are Jester, a meeting assistant. Respond briefly and naturally "
     "to the ongoing conversation below. Your reply is spoken aloud, not "
@@ -87,7 +99,11 @@ class PromptBuilder:
     """Owns the stable prefix (preamble + rolling transcript) and appends
     retrieved evidence (if any) strictly after it, never before."""
 
-    def __init__(self, num_ctx: int, chars_per_token_estimate: float = 4.0):
+    def __init__(
+        self,
+        num_ctx: int,
+        chars_per_token_estimate: float = CHARS_PER_TOKEN_ESTIMATE,
+    ):
         self.num_ctx = num_ctx
         self._chars_per_token_estimate = chars_per_token_estimate
         self._transcript_lines: list[str] = []
@@ -95,13 +111,30 @@ class PromptBuilder:
     def append_transcript_line(self, speaker: str, text: str) -> None:
         self._transcript_lines.append(f"{speaker}: {text}")
 
-    def _stable_prefix(self) -> str:
+    def stable_prefix(self) -> str:
+        """The region that must remain a LITERAL PREFIX of every
+        subsequent turn's prompt for G1/DR-013(a)'s KV-cache reuse to
+        hold. Public because `tests/test_prompt_ordering.py` asserts that
+        property directly against it -- retrieved evidence must never be
+        written back into `_transcript_lines`, or this region diverges
+        every turn and the cache is lost with no error raised."""
         return STABLE_PREAMBLE + "\n".join(self._transcript_lines)
 
     def build(self, evidence: str | None = None) -> str:
         """Stable prefix first, evidence appended AFTER it (DR-013a), the
-        whole turn wrapped for raw-mode `/api/generate` (DR-024)."""
-        body = self._stable_prefix()
+        whole turn wrapped for raw-mode `/api/generate` (DR-024).
+
+        Note the ordering DR-032 asked about explicitly: the current
+        turn's own text is inside the transcript region (appended by
+        `append_transcript_line` before this call), so the order is
+        transcript-including-the-question -> evidence -> reminder ->
+        turn-close markers. DR-032's "query/turn last of all" phrasing is
+        an `e.g.` illustrating that the ordering be expressed
+        mode-independently, not a mandate to move the question after the
+        evidence; moving it would change the accumulation invariant that
+        DR-027's leak mitigation and the whole existing Bar B baseline
+        were measured against, for no measured benefit."""
+        body = self.stable_prefix()
         if evidence:
             body = body + "\n\n[Evidence]\n" + evidence
         body = body + _REMINDER
@@ -111,8 +144,10 @@ class PromptBuilder:
         if est_tokens >= self.num_ctx:
             raise PromptOverflowError(
                 f"Estimated prompt tokens ({est_tokens:.0f}) at or over "
-                f"num_ctx ({self.num_ctx}). Transcript truncation is "
-                f"UNDECIDED (DR-013b) -- failing loudly rather than "
-                f"inventing a truncation policy."
+                f"num_ctx ({self.num_ctx}); transcript region "
+                f"{estimate_tokens(self.stable_prefix())} tokens, evidence "
+                f"region {estimate_tokens(evidence or '')} tokens. "
+                f"Transcript truncation is UNDECIDED (DR-013b) -- failing "
+                f"loudly rather than inventing a truncation policy."
             )
         return prompt

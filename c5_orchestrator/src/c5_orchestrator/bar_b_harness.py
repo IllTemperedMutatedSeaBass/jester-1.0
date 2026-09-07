@@ -82,12 +82,24 @@ def _find(events: list[dict], stage: str, event: str) -> dict | None:
     return None
 
 
-def decompose_turn(events: list[dict]) -> dict[str, float] | None:
+def decompose_turn(
+    events: list[dict], allow_missing_retrieval: bool = False
+) -> dict[str, float] | None:
     """Compute one turn's stage durations and T_ttfa. Returns None if any
     required event is missing (incomplete/failed turn -- excluded, not
-    padded with a guess)."""
+    padded with a guess).
+
+    `allow_missing_retrieval` exists ONLY to re-decompose runs recorded
+    before thread 1.0.14 added the retrieval stage (e.g. DR-026's D0
+    baseline logs), which have no retrieval events at all. It is OFF by
+    default and must be asked for explicitly, because defaulting a missing
+    retrieval stage to 0.0 inside a retrieval-ENABLED run would silently
+    understate exactly the cost this stage was added to measure. Turning it
+    on for such a run is a measurement error, not a convenience."""
     endpoint = _find(events, "C1", "endpoint_declared")
     asr_done = _find(events, "C1", "asr_done")
+    retrieval_start = _find(events, "C2", "retrieval_start")
+    retrieval_done = _find(events, "C2", "retrieval_done")
     prefill_start = _find(events, "C2", "prefill_start")
     prefill_done = _find(events, "C2", "prefill_done")
     generate_done = _find(events, "C2", "generate_done")
@@ -95,6 +107,10 @@ def decompose_turn(events: list[dict]) -> dict[str, float] | None:
     synth_done = _find(events, "C4", "synthesize_done")
     playout_start = _find(events, "C5", "playout_start")
     playout_done = _find(events, "C5", "playout_done")
+
+    retrieval_missing = retrieval_start is None or retrieval_done is None
+    if retrieval_missing and not allow_missing_retrieval:
+        return None
 
     required = [
         endpoint, asr_done, prefill_start, prefill_done, generate_done,
@@ -106,15 +122,35 @@ def decompose_turn(events: list[dict]) -> dict[str, float] | None:
     endpoint_ts = endpoint["endpoint_monotonic_ts"]
     return {
         "asr_tail_s": asr_done["monotonic_ts"] - endpoint_ts,
+        # Retrieval is a full partition member, not a footnote: it runs
+        # between C2 receiving the turn and C2 starting prefill (see
+        # c2_reason/main.py's module docstring -- prefill_start is
+        # deliberately logged AFTER retrieval_done so retrieval cost
+        # cannot hide inside c2_prefill_s with no error raised).
+        "retrieval_s": 0.0 if retrieval_missing else (
+            retrieval_done["monotonic_ts"] - retrieval_start["monotonic_ts"]
+        ),
         "c2_prefill_s": prefill_done["prefill_done_monotonic_ts"] - prefill_start["monotonic_ts"],
         "c2_generate_s": generate_done["generate_done_monotonic_ts"] - prefill_done["prefill_done_monotonic_ts"],
         "tts_s": synth_done["monotonic_ts"] - synth_start["monotonic_ts"],
         "playout_s": playout_done["monotonic_ts"] - playout_start["monotonic_ts"],
         "t_ttfa_s": playout_start["monotonic_ts"] - endpoint_ts,
+        # Not durations -- carried alongside so the retrieval COST can be
+        # read against the retrieval VOLUME in the same record. The
+        # evidence-attributable share of prefill is the dominant half of
+        # retrieval's effect on T_ttfa and it lands in c2_prefill_s, not
+        # in retrieval_s.
+        "retrieved_chunks": 0 if retrieval_missing else retrieval_done.get("chunks_total", 0),
+        "evidence_tokens_est": 0 if retrieval_missing else retrieval_done.get("evidence_tokens_est", 0),
+        "prompt_eval_count": prefill_done.get("prompt_eval_count", 0),
+        "embed_s": 0.0 if retrieval_missing else retrieval_done.get("embed_s", 0.0),
+        "query_s": 0.0 if retrieval_missing else retrieval_done.get("query_s", 0.0),
     }
 
 
-_PARTITION_STAGES = ["asr_tail_s", "c2_prefill_s", "c2_generate_s", "tts_s"]
+_PARTITION_STAGES = [
+    "asr_tail_s", "retrieval_s", "c2_prefill_s", "c2_generate_s", "tts_s",
+]
 
 
 def summarize(decompositions: list[dict[str, float]]) -> dict[str, Any]:
@@ -153,6 +189,20 @@ def summarize(decompositions: list[dict[str, float]]) -> dict[str, Any]:
     summary["post_ttfa_playout_s_median"] = statistics.median(
         d["playout_s"] for d in decompositions
     )
+
+    # Retrieval volume, reported next to retrieval cost so the two are
+    # read together. `evidence_tokens_est` is an ESTIMATE (chars/4);
+    # `prompt_eval_count` is Ollama's own exact count of tokens actually
+    # prefilled this turn. On a cache hit the latter is the DELTA, so the
+    # evidence share of it is the figure that says what retrieval costs
+    # in prefill.
+    for field_name in (
+        "retrieved_chunks", "evidence_tokens_est", "prompt_eval_count",
+        "embed_s", "query_s",
+    ):
+        values = [d.get(field_name, 0) for d in decompositions]
+        summary[f"{field_name}_median"] = statistics.median(values)
+
     return summary
 
 
@@ -182,6 +232,15 @@ def main() -> None:
         "(default: logs/latest, the symlink run_d0.sh points at its most "
         "recent per-run timestamped log directory -- DR-027)",
     )
+    parser.add_argument(
+        "--allow-missing-retrieval",
+        action="store_true",
+        help="Re-decompose a run recorded BEFORE the retrieval stage "
+        "existed (pre-thread-1.0.14, e.g. DR-026's D0 baseline logs), "
+        "treating retrieval_s as 0.0. Never use this on a "
+        "retrieval-enabled run: it would silently understate the retrieval "
+        "cost the stage exists to measure.",
+    )
     args = parser.parse_args()
 
     try:
@@ -195,7 +254,7 @@ def main() -> None:
 
     decompositions = []
     for turn_id, events in by_turn.items():
-        d = decompose_turn(events)
+        d = decompose_turn(events, allow_missing_retrieval=args.allow_missing_retrieval)
         if d is not None:
             decompositions.append(d)
 
