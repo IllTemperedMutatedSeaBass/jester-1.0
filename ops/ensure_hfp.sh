@@ -7,7 +7,17 @@
 # Found and done by hand in thread 1.0.8; folded into an ops script here
 # (thread 1.0.9, DR-024 addendum) so no session repeats it manually.
 #
-# Confirms via pw-dump that the resulting active node reports
+# This switch is NOT persistent across idle periods (found thread 1.0.10):
+# WirePlumber's EnumProfile ranks a2dp-sink above headset-head-unit
+# (priority 134 vs 7), and once nothing is actively driving the SCO/HFP
+# link the profile reverts to a2dp-sink on its own. A successful run here
+# only guarantees HFP for the run that immediately follows it -- this
+# script MUST be invoked fresh, every single time, immediately before any
+# live/spoken session (ops/run_d0.sh does this). Do not treat a past
+# success as still valid.
+#
+# Confirms via pw-dump that the resulting active node for THIS device
+# (matched by bluez address, not just any bluez node) reports
 # api.bluez5.codec == "msbc" before returning success. Exits non-zero and
 # prints diagnostics on any failure -- callers (ops/run_d0.sh) should not
 # proceed to a live run without this succeeding.
@@ -19,6 +29,13 @@ device_id="$(wpctl status | grep -F "${DEVICE_NAME}" | grep -F "[bluez5]" | grep
 
 if [[ -z "${device_id}" ]]; then
     echo "ensure_hfp: ${DEVICE_NAME} not found in \`wpctl status\` (bluez5 device) -- is it connected?" >&2
+    exit 1
+fi
+
+device_address="$(bluetoothctl devices | grep -F "${DEVICE_NAME}" | awk '{print $2}' | head -1)"
+
+if [[ -z "${device_address}" ]]; then
+    echo "ensure_hfp: could not resolve a bluetooth address for ${DEVICE_NAME} via \`bluetoothctl devices\`." >&2
     exit 1
 fi
 
@@ -47,14 +64,16 @@ for _ in $(seq 1 10); do
     codec="$(pw-dump 2>/dev/null | python3 -c '
 import json, sys
 d = json.load(sys.stdin)
+target_addr = sys.argv[1]
 for o in d:
     props = o.get("info", {}).get("props", {})
-    if props.get("api.bluez5.profile") == "headset-head-unit":
+    if (props.get("api.bluez5.profile") == "headset-head-unit"
+            and props.get("api.bluez5.address") == target_addr):
         print(props.get("api.bluez5.codec", ""))
         break
-')"
+' "${device_address}")"
     if [[ "${codec}" == "msbc" ]]; then
-        echo "ensure_hfp: ${DEVICE_NAME} on headset-head-unit, codec=msbc confirmed." >&2
+        echo "ensure_hfp: ${DEVICE_NAME} (${device_address}) on headset-head-unit, codec=msbc confirmed." >&2
         exit 0
     fi
     sleep 0.5

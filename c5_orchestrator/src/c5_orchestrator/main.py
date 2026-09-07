@@ -5,7 +5,6 @@ One command runs the loop: C1 (blocking capture+ASR) -> C5 -> C2 (reason)
 ruling) -- the D0 path is C1 -> C5 -> C2 -> C4 only.
 """
 import argparse
-import sys
 import uuid
 
 import httpx
@@ -19,7 +18,9 @@ def run_turn(config: Config, client: httpx.Client) -> None:
     pre_turn_id = str(uuid.uuid4())
     log_event("C5", "turn_start", pre_turn_id)
 
-    transcribe_resp = client.post(f"{config.c1_base_url}/transcribe", timeout=120.0)
+    transcribe_resp = client.post(
+        f"{config.c1_base_url}/transcribe", timeout=config.TRANSCRIBE_TIMEOUT_S
+    )
     transcribe_resp.raise_for_status()
     transcript_data = transcribe_resp.json()
     # C1 mints its own turn_id (it has no way to receive one -- /transcribe
@@ -68,9 +69,15 @@ def main() -> None:
     config = Config()
     turn_count = args.turns or config.TURN_COUNT
 
+    print(
+        f"D0 Bar B run: {turn_count} turns, "
+        f"per-turn speak window {config.TRANSCRIBE_TIMEOUT_S:.0f}s.",
+        flush=True,
+    )
+
     with httpx.Client() as client:
         for i in range(turn_count):
-            print(f"--- turn {i + 1}/{turn_count} ---", file=sys.stderr)
+            print(f"--- turn {i + 1}/{turn_count}: SPEAK NOW ---", flush=True)
             run_turn(config, client)
 
 

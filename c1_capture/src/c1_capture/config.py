@@ -12,3 +12,8 @@ class Config:
     VAD_RMS_THRESHOLD = float(os.environ.get("C1_VAD_RMS_THRESHOLD", "0.02"))
     VAD_SILENCE_MS = int(os.environ.get("C1_VAD_SILENCE_MS", "800"))
     VAD_MIN_SPEECH_MS = int(os.environ.get("C1_VAD_MIN_SPEECH_MS", "250"))
+    # Non-interactive smoke-test path (thread 1.0.10): when set, Endpointer
+    # reads looping mono float32 audio from this WAV file instead of opening
+    # a live mic stream. VAD/endpointing logic is untouched -- only the
+    # audio source changes. Never set for a live/spoken run.
+    CAPTURE_WAV = os.environ.get("C1_CAPTURE_WAV", "")

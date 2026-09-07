@@ -11,6 +11,14 @@ class Config:
     C4_HOST = os.environ.get("C4_HOST", "127.0.0.1")
     C4_PORT = int(os.environ.get("C4_PORT", "8004"))
     TURN_COUNT = int(os.environ.get("C5_TURN_COUNT", "10"))
+    # Per-turn wait for C1's /transcribe to return, i.e. how long a human
+    # has to notice the "SPEAK NOW" prompt and speak before C5 gives up on
+    # the turn. C1's own VAD wait is unbounded (capture.py: wait_for_utterance
+    # blocks until speech starts), so this is the only real ceiling on a
+    # spoken turn. Raised from a 120s default (thread 1.0.10: the previous
+    # attempt's stall was a buffering bug, not this value, but 120s leaves
+    # little margin for a human reading a freshly-visible prompt over SSH).
+    TRANSCRIBE_TIMEOUT_S = float(os.environ.get("C5_TRANSCRIBE_TIMEOUT_S", "300"))
 
     @property
     def c1_base_url(self) -> str:
