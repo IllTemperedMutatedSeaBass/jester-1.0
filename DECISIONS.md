@@ -817,3 +817,212 @@ either.
 
 This entry is an append; no prior entry above is edited, per the append-only rule for
 this file.
+
+---
+
+## 2026-09-07 — Thread 1.0.11 (continued): live spoken run's two defects investigated, Bar B provisionally NOT re-anchored
+
+### DR-028 — Preamble-leak defect found and fixed (C2 + independent C4 backstop, both verified live); connection-reuse/repetition defect explained as benign D0 behaviour, not a bug; this run's figure held provisional pending a clean re-run (2026-09-07)
+
+**Context.** The operator ran `ops/run_d0.sh --turns 20` after DR-027's
+changes; logs are in `logs/run_20260907T095156Z/`. Emoji/stage-direction
+suppression (Task 3) worked as intended -- confirmed by the operator. Two
+defects were reported for investigation before trusting a figure from
+this run.
+
+**Defect 1 -- prompt leakage (BLOCKING, now fixed).** Turns 6 and 9
+(ordinal position in the run; `turn_id`s `c4bdaddc...` and `c37313d3...`)
+synthesized a 40-token-cap-truncated copy of `STABLE_PREAMBLE` instead of
+a reply, confirmed against `c2.jsonl`: both are the only two turns in the
+run with `eval_count == max_tokens_cap == 40`.
+
+*Root cause, established by live reproduction, not guesswork.* Started
+`c2_reason` directly and drove it through two stress sequences of short,
+repetitive filler lines (`"This is turn one."` ... `"This is turn
+twenty-five."`), approximating what a 20-turn timing-calibration script
+plausibly sounds like (short, information-free, differing only by a
+number word). The pre-fix code leaked the literal preamble verbatim,
+cap-truncated at 40 tokens, on the first attempt (turn 9 of a 25-line
+sequence) -- eval_count=40, matching the field signature exactly. A
+second, independent sequence reproduced it again. Mechanism: `raw: true`
+(DR-024) gives no chat-template-enforced turn boundary; the operator's
+hypothesis was right in substance -- with nothing else compelling the
+model to treat `<start_of_turn>model\n` as a hard boundary, and with an
+increasingly repetitive, information-free transcript (no assistant-turn
+history is ever appended -- `c2_reason.main.respond()` only calls
+`prompt_builder.append_transcript_line` for the human side -- and no
+retrieval yet, DR-013b), the model drifts into degenerate completion:
+first repeating near-identical short replies, then occasionally copying
+nearby prompt text verbatim, including the preamble sitting at the top of
+the same prompt. This session's own `stop: ["<end_of_turn>"]` (DR-027)
+only catches the LITERAL string if the model emits it; it does not stop a
+continuation that never attempts to close the turn, so generation runs to
+the 40-token cap instead -- consistent with both leaked turns hitting the
+cap exactly.
+
+*Fix, three parts:*
+1. **Recency-placed mitigation** (`c2_reason/src/c2_reason/prompt.py`): a
+   short fixed reminder -- "(Reply now with your own new words,
+   addressing what was just said. Do not repeat or restate the
+   instructions above.)" -- is now appended fresh after the
+   transcript/evidence and immediately before the closing turn markers on
+   every call, kept deliberately separate from `STABLE_PREAMBLE` so it
+   stays adjacent to the generation point regardless of transcript
+   length (raw-mode completion weights nearby context more heavily than
+   distant context).
+2. **C2-side detection and replacement** (`c2_reason/src/c2_reason/main.py`,
+   `_strip_leaked_preamble`): if the model's response starts with the
+   normalized signature phrase "you are jester, a meeting assistant"
+   (`PREAMBLE_LEAK_SIGNATURE`, exported from `prompt.py`) -- matched as a
+   prefix, not full equality, since a leak can be truncated anywhere by
+   the token cap -- the response is replaced with a fixed fallback
+   ("Sorry, could you say that again?") and a new `preamble_leak_detected`
+   event is logged with `raw_eval_count`/`cap_hit`, so future runs can
+   count occurrences directly instead of relying on the operator noticing
+   audibly.
+3. **C4-side independent backstop** (`c4_speech/src/c4_speech/text_filter.py`,
+   `is_preamble_leak`/`strip_unspeakable`): carries its own copy of the
+   same signature (components are HTTP-only per project-structure
+   discipline, so this is duplicated by hand, not imported) and strips a
+   detected leak to `""`. `c4_speech/src/c4_speech/main.py` now guards
+   against empty filtered text by skipping the TTS engine call entirely
+   and returning a minimal valid silent WAV (1 sample) rather than
+   calling `engine.synthesize("")`, whose behaviour on empty input was
+   untested. `synthesize_start` now also logs `preamble_leak_detected`.
+
+*Verification, both synthetic and live:*
+- Unit tests: 4 new cases added to `c4_speech/tests/test_text_filter.py`
+  (detects a full leaked preamble, detects a cap-truncated one, strips
+  both to `""`, and confirms ordinary replies -- including one that also
+  starts with the words "you are" -- are never false-flagged).
+  **14/14 passed** (up from 10/10 in the prior commit).
+- Live re-test of the exact stress sequence that reproduced the bug pre
+  -fix, run twice (30 turns total, a superset of the two sequences that
+  triggered leaks before): **zero leaks, zero `preamble_leak_detected`
+  events** with the fix in place.
+- Live direct test of the C4 backstop in isolation: posted the verbatim
+  cap-truncated leaked preamble text straight to `/synthesize` (bypassing
+  C2 entirely, simulating a future regression in C2's own fix) --
+  `preamble_leak_detected: true`, `filtered_len: 0`, engine call skipped,
+  valid 46-byte silent WAV returned (200 OK), confirming the second line
+  of defense holds independently.
+- All investigation/verification processes were started on alternate
+  ports, driven directly, and killed cleanly afterward; none were left
+  running.
+
+*Decision: turns 6 and 9 are EXCLUDED from this run's figure, not
+retained.* This differs from DR-020's RETAIN call on turn 9's leaked
+`<end_of_turn>` marker, and the difference is the substance of what was
+measured, not a change of policy: DR-020's case was a few trailing
+leaked tokens on an otherwise complete, correctly-directed reply, so that
+turn's T_ttfa still measured "time to speak a real reply." Turns 6 and 9
+here spoke ONLY the (truncated) system instructions -- there is no reply
+content in them at all -- so their T_ttfa values measure time-to-speak-a
+-prompt-echo, a materially different quantity from what Bar B is defined
+to characterize. Retaining them would silently blend two different
+phenomena into one figure; excluding two turns out of twenty, with the
+anomaly fully documented here, is the more honest choice.
+
+**Defect 2 -- connection reuse and model repetition (non-blocking,
+recorded, not a bug).**
+
+*Port stability from turn 11 onward.* `c5_orchestrator/src/c5_orchestrator/main.py`
+opens exactly one `httpx.Client()` for the whole 20-turn loop (`with
+httpx.Client() as client:` wraps the `for` loop, not each turn) --
+by design, so that connection pooling can be exercised, not because
+anything holds state it shouldn't. `httpx`'s default connection-pool
+keepalive expiry is 5 seconds: if the gap between one turn's last request
+and the next turn's first request exceeds that, the pooled connection is
+dropped and a new one (new ephemeral source port) is opened; if the gap
+is shorter, the same connection and port are reused. Early turns
+plausibly had longer inter-turn gaps (operator getting oriented, longer
+pauses before speaking) exceeding 5s, producing new ports each time;
+later turns plausibly had tighter pacing (under 5s between turns) as the
+run settled into a rhythm, so the same three ports persisted. **This is
+ordinary keep-alive reuse contingent on request timing, not a bug or
+anything holding state improperly** -- confirmed by reading the exact
+client-lifetime code, not inferred.
+
+*Replies collapsing to variations of "Turn ten."* `prompt_eval_count`
+across the run (`c2.jsonl`, `prefill_done` events) grows smoothly and
+monotonically turn over turn with no spike or reset at or near turn 11
+(330 at turn 11, deltas of 14-38 tokens throughout the run) -- **this
+rules out a cache-reset or cache-corruption explanation**: G1's prefix
+-reuse property is working continuously, exactly as designed. The
+repetition itself was reproduced live in this session's defect-1
+investigation: driving `c2_reason` with a sequence of short, near
+-identical filler lines (the same kind of content a 20-turn timing
+-calibration script plausibly uses) reliably produces a model that
+settles into short, repetitive, semantically-thin replies ("I am here.",
+"Yes, I am here.", "I'm here and ready when you are.") -- because the
+transcript genuinely contains little new information turn over turn, no
+retrieval exists yet to inject variety (DR-013b, C3 stubbed), and the
+model's own past replies are never appended to the rolling transcript, so
+it has no memory of what it already said and no substantive new human
+content to respond to. **Verdict: this is D0's expected behaviour given
+its known, already-documented design gaps (no retrieval, no assistant
+-turn history, no transcript truncation policy) -- not a new bug.**
+Recorded in `BACKLOG.md`, not treated as a defect requiring a code fix
+here.
+
+**Task 5 -- figure computed, held PROVISIONAL, re-measurement
+recommended.** Arithmetic over `logs/run_20260907T095156Z/` via the
+(presentationally fixed, DR-027) `bar_b_harness.summarize()`:
+
+- **All 20 turns:** T_ttfa median **2.705 s**, p90 **4.987 s**.
+- **Excluding the two leaked-preamble turns (n=18):** T_ttfa median
+  **2.626 s**, p90 **3.937 s**.
+- Kill switch (median > 8 s): NOT fired, either way, by a wide margin.
+- Live carve: **16.0 GiB** (`mem_info_vram_total` =
+  17179869184 bytes, read fresh this session, unchanged from DR-026 --
+  DO NOT CHANGE honored, this is a read, not an action). Kernel:
+  `7.0.0-31-generic` (unchanged). Model digest:
+  `sha256-90ce98129eb3e8cc57e62433d500c97c624b1e3af1fcc85dd3b55ad7e0313e9f`
+  (unchanged, confirmed live against the running `llama-server` process's
+  own `--model` blob path, not just `.env`).
+
+**Why this is not adopted as the new Bar B anchor.** Turns 6 and 9 are
+not a labelling artefact (unlike DR-027's decomposition audit) -- they
+are two turns out of twenty (10%) where a live, uncorrected-at-the-time
+correctness bug was active, and they happen to be the two SLOWEST turns
+in the entire run, so they distort the tail statistic specifically: p90
+drops by 1.05 s (21%) once they are excluded, while the median (robust to
+two outliers out of twenty) moves only 0.08 s. The fix has been verified
+synthetically (unit tests) and live against a direct HTTP stress-test
+that reliably reproduced the original bug twice -- but it has NOT been
+verified on an actual spoken run with real microphone/VAD/HFP timing,
+which is the only measurement DR-017 actually counts. **Recommendation:
+one more clean 20-turn operator spoken run, with this session's fix in
+place, before either arithmetic figure above is adopted as the anchor
+DR-026's 3.076 s / 4.959 s is superseded by.** Until then, both figures
+above are reported as what the arithmetic says over the available data,
+not as a trusted Bar B result.
+
+**Comparison against DR-026's 3.076 s / 4.959 s, with explicit strength
+grading (one run either side of the Task 3 change, as instructed not to
+overclaim from).**
+
+- *Median:* 2.705 s (all 20) or 2.626 s (excluding leaks) vs. 3.076 s --
+  a drop of 0.37-0.45 s (12-15%), directionally consistent with removing
+  emoji/stage-direction synthesis overhead (DR-020 measured 52-104%
+  synthesis-time inflation from a single instance). **Weak-to-moderate
+  signal, not proof:** n=1 run on each side, with different spoken
+  content and no isolation of the emoji-suppression variable from
+  ordinary turn-to-turn content variance -- the same caveat DR-026 itself
+  applied when comparing against DR-023's run. The direction and rough
+  magnitude are consistent with the fix working; that is what the
+  evidence supports, no more.
+- *p90:* 4.987 s (all 20, i.e. essentially unchanged from 4.959 s) vs.
+  3.937 s (excluding the two leaked turns, a 21% drop). **This
+  comparison is not currently interpretable and should not be used to
+  argue the emoji fix affected p90 either way.** The all-20 figure's
+  apparent "no change" is an artefact of defect 1 coincidentally
+  replacing what might otherwise have been the tail's fastest position
+  with its slowest; the excluding-leaks figure's 21% drop cannot be
+  cleanly attributed to the emoji fix either, since it comes from a
+  dataset with a different, unrelated defect actively distorting exactly
+  the tail turns being compared. A clean re-run is needed before any p90
+  attribution claim is defensible.
+
+This entry is an append; no prior entry above is edited, per the append-only rule for
+this file.

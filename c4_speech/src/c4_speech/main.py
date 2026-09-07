@@ -14,11 +14,17 @@ from fastapi import FastAPI, HTTPException, Response
 from .config import Config
 from .engines.base import TTSEngine
 from .logging_util import log_event
-from .text_filter import strip_unspeakable
+from .text_filter import is_preamble_leak, strip_unspeakable
 
 config = Config()
 app = FastAPI()
 engine: TTSEngine | None = None
+
+# Used when strip_unspeakable() leaves nothing to say (DR-027: a leaked
+# preamble strips to "") -- avoids calling the TTS engine with empty
+# input, whose behaviour is untested here, while still returning valid,
+# very short WAV audio rather than an error.
+_SILENCE_SAMPLE_RATE = 24000
 
 
 def _pcm_to_wav_bytes(samples: np.ndarray, sample_rate: int) -> bytes:
@@ -59,6 +65,7 @@ def synthesize(text: str, voice: str | None = None, turn_id: str | None = None):
         raise HTTPException(status_code=503, detail="TTS engine not initialised")
 
     turn_id = turn_id or str(uuid.uuid4())
+    leak_detected = is_preamble_leak(text)
     filtered_text = strip_unspeakable(text)
     stripped = filtered_text != text
     log_event(
@@ -67,11 +74,16 @@ def synthesize(text: str, voice: str | None = None, turn_id: str | None = None):
         turn_id,
         engine=config.TTS_ENGINE,
         stripped=stripped,
+        preamble_leak_detected=leak_detected,
         raw_len=len(text),
         filtered_len=len(filtered_text),
     )
 
-    samples, sample_rate = engine.synthesize(filtered_text, voice or config.DEFAULT_VOICE)
+    if not filtered_text:
+        samples = np.zeros(1, dtype=np.float32)
+        sample_rate = _SILENCE_SAMPLE_RATE
+    else:
+        samples, sample_rate = engine.synthesize(filtered_text, voice or config.DEFAULT_VOICE)
 
     log_event(
         "C4",

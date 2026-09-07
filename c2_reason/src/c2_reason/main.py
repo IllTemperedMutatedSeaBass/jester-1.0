@@ -13,7 +13,26 @@ from pydantic import BaseModel
 from .config import Config
 from .logging_util import log_event
 from .ollama_client import generate
-from .prompt import PromptBuilder, PromptOverflowError
+from .prompt import PREAMBLE_LEAK_SIGNATURE, PromptBuilder, PromptOverflowError
+
+
+FALLBACK_ON_LEAK = "Sorry, could you say that again?"
+
+
+def _strip_leaked_preamble(text: str) -> tuple[str, bool]:
+    """DR-027: detect the model echoing STABLE_PREAMBLE instead of
+    replying (reproduced live, thread 1.0.11 -- see prompt.py's
+    docstring). Returns (cleaned_text, leak_detected). A leak always
+    starts with PREAMBLE_LEAK_SIGNATURE (possibly cap-truncated partway
+    through), so on detection the whole response is replaced with a short
+    fixed fallback rather than trying to salvage a partial tail -- there
+    is no genuine reply content in a response that IS the echoed
+    instructions, and returning empty text risks an edge case in
+    zero-length TTS input downstream at C4."""
+    normalized = " ".join(text.lower().split())
+    if normalized.startswith(PREAMBLE_LEAK_SIGNATURE):
+        return FALLBACK_ON_LEAK, True
+    return text, False
 
 config = Config()
 app = FastAPI()
@@ -81,9 +100,19 @@ def respond(req: RespondRequest) -> RespondResponse:
         model_digest=config.OLLAMA_MODEL_DIGEST,
     )
 
+    reply_text, leak_detected = _strip_leaked_preamble(result["response"])
+    if leak_detected:
+        log_event(
+            "C2",
+            "preamble_leak_detected",
+            turn_id,
+            raw_eval_count=result.get("eval_count"),
+            cap_hit=result.get("eval_count") == config.MAX_TOKENS,
+        )
+
     return RespondResponse(
         turn_id=turn_id,
-        text=result["response"],
+        text=reply_text,
         max_tokens=config.MAX_TOKENS,
         model=config.OLLAMA_MODEL,
         model_digest=config.OLLAMA_MODEL_DIGEST,

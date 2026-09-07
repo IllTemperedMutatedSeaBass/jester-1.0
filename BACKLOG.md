@@ -2,6 +2,23 @@
 
 ## Open
 
+- **D0's rolling transcript is human-side-only and never truncated, and
+  there is no retrieval yet -- a short, repetitive spoken script (e.g. a
+  20-turn timing-calibration run saying "this is turn N" each time)
+  reliably produces repetitive, semantically-thin replies (thread 1.0.11,
+  DR-028: reproduced live, "I am here." / "Yes, I am here." /
+  variations, and the operator observed the live run's turns 11+
+  collapsing into variations of "Turn ten").** Root-caused, not a bug:
+  `c2_reason.main.respond()` only ever calls
+  `prompt_builder.append_transcript_line` for the human side -- the
+  model's own past replies are never added to the rolling transcript, so
+  it has no memory of what it already said -- combined with no retrieval
+  (C3 stubbed, DR-013b) and no transcript truncation policy (also
+  DR-013b, UNDECIDED). This is expected D0 behaviour given those already
+  -documented gaps, not something to patch here. Worth revisiting
+  together with the num_ctx truncation decision below, since both are
+  about what the rolling transcript should actually contain.
+
 - **`c4_speech`'s venv has no `pytest` installed** (found thread 1.0.11
   while adding `c4_speech/tests/test_text_filter.py`). Tests are written
   pytest-style (bare `test_*` functions) and were verified via a
@@ -146,3 +163,20 @@
   `logs/latest` symlinked). Bar B was re-anchored; see DR-027 and
   RELAY.md's thread-1.0.11 STOP report for the fresh figure once the
   operator's spoken run completes.
+
+- **Preamble-leak defect found on the first post-DR-027 spoken run and
+  fixed (DR-028, thread 1.0.11).** Two of twenty turns synthesized a
+  cap-truncated copy of C2's own system preamble instead of a reply.
+  Reproduced live via direct HTTP stress-testing, root-caused to raw
+  -mode completion drifting into copying nearby prompt text on a
+  repetitive, information-free transcript. Fixed three ways: a recency
+  -placed anti-echo reminder in the prompt (`c2_reason/prompt.py`), C2
+  -side detection-and-replacement with a logged `preamble_leak_detected`
+  event (`c2_reason/main.py`), and an independent C4-side backstop that
+  refuses to synthesize a detected leak (`c4_speech/text_filter.py`,
+  `c4_speech/main.py`). 14/14 unit tests pass; the fix was live-verified
+  against the exact stress sequence that reproduced the bug (zero leaks
+  across 30 turns) and the C4 backstop was verified in isolation. NOT yet
+  validated on a real spoken run -- see DR-028 for why this run's figure
+  is held provisional and a fresh operator run is recommended before
+  re-anchoring Bar B.

@@ -24,6 +24,31 @@ consumes the entire token cap before any final content -- with the hand
 markers are a fixed suffix after the (evidence-extended) transcript, so
 they do not change DR-013a's append-after-transcript ordering or the
 cached-prefix property G1 measured.
+
+DR-027 investigation (thread 1.0.11, live Bar B run): turns 6 and 9 of that
+run synthesized a truncated (40-token-cap) copy of `STABLE_PREAMBLE`
+instead of a reply. Reproduced live (repo not included -- this docstring
+records the finding): sending Ollama's raw-mode `/api/generate` a growing,
+largely repetitive transcript (short filler lines, no substantive new
+content, which is exactly what a timing-calibration Bar B script looks
+like) makes the model progressively more likely to fall into degenerate
+completion -- first repeating near-identical short replies, then
+eventually copying nearby prompt text verbatim, including the preamble
+sitting at the very top of the same prompt. `raw: true` gives no chat
+-template-enforced turn boundary, and the `stop: ["<end_of_turn>"]` added
+this session only catches the LITERAL string if the model happens to emit
+it -- it does not stop a degenerate continuation that never attempts to
+close the turn, so generation runs to the 40-token cap instead. `_REMINDER`
+below is a recency-placed mitigation (the closer an instruction sits to
+the generation point, the more weight raw-mode completion tends to give
+it) placed after the transcript/evidence and before the closing markers,
+not folded into `STABLE_PREAMBLE` itself, precisely so it stays close to
+generation regardless of how long the transcript grows. `PREAMBLE_LEAK_SIGNATURE`
+is exported so `respond()` can detect the failure mode when the mitigation
+doesn't prevent it and log+strip it rather than return it as a valid
+reply; `c4_speech.text_filter` carries its own independent copy of the
+same signature as a second line of defense, since components are HTTP
+-only and do not share code (project-structure discipline).
 """
 
 
@@ -37,6 +62,21 @@ STABLE_PREAMBLE = (
     "read: never include emoji, asterisked stage directions (e.g. "
     "*laughs*), or parenthetical narration -- write only the words to be "
     "spoken.\n\n"
+)
+
+# First few words of STABLE_PREAMBLE, normalized (lowercased, single
+# spaces). A leaked/echoed preamble always starts here even when
+# truncated by the token cap partway through, so this is what
+# respond()/text_filter check for -- not an exact-match of the whole
+# preamble, which a truncated leak would never satisfy.
+PREAMBLE_LEAK_SIGNATURE = "you are jester, a meeting assistant"
+
+# Recency-placed anti-echo reminder (DR-027): kept separate from
+# STABLE_PREAMBLE and re-appended fresh every turn immediately before the
+# model's turn starts, regardless of how long the transcript has grown.
+_REMINDER = (
+    "\n\n(Reply now with your own new words, addressing what was just "
+    "said. Do not repeat or restate the instructions above.)"
 )
 
 _TURN_OPEN = "<start_of_turn>user\n"
@@ -64,6 +104,7 @@ class PromptBuilder:
         body = self._stable_prefix()
         if evidence:
             body = body + "\n\n[Evidence]\n" + evidence
+        body = body + _REMINDER
         prompt = _TURN_OPEN + body + _TURN_CLOSE
 
         est_tokens = len(prompt) / self._chars_per_token_estimate

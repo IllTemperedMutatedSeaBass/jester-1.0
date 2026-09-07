@@ -11,7 +11,21 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from c4_speech.text_filter import strip_unspeakable
+from c4_speech.text_filter import is_preamble_leak, strip_unspeakable
+
+# Verbatim (and truncated) preamble text observed leaking live, thread
+# 1.0.11 (turns 6/9 of the operator's 20-turn run; reproduced again in a
+# direct C2 investigation call).
+_LEAKED_PREAMBLE_FULL = (
+    "You are Jester, a meeting assistant. Respond briefly and naturally "
+    "to the ongoing conversation below. Your reply is spoken aloud, not "
+    "read: never include emoji, asterisked stage directions"
+)
+_LEAKED_PREAMBLE_TRUNCATED = (
+    "You are Jester, a meeting assistant. Respond briefly and naturally "
+    "to the ongoing conversation below. Your reply is spoken aloud, not "
+    "read; never include emoji, asterisked stage directions, or parenth"
+)
 
 
 def test_plain_text_untouched():
@@ -84,3 +98,24 @@ def test_control_marker_regex_does_not_eat_stray_less_than_mid_sentence():
     # should survive -- only a truncated marker AT THE END is stripped.
     text = "x < y is true, by the way."
     assert strip_unspeakable(text) == text
+
+
+def test_detects_full_leaked_preamble():
+    assert is_preamble_leak(_LEAKED_PREAMBLE_FULL)
+
+
+def test_detects_cap_truncated_leaked_preamble():
+    assert is_preamble_leak(_LEAKED_PREAMBLE_TRUNCATED)
+
+
+def test_strips_leaked_preamble_to_empty():
+    assert strip_unspeakable(_LEAKED_PREAMBLE_FULL) == ""
+    assert strip_unspeakable(_LEAKED_PREAMBLE_TRUNCATED) == ""
+
+
+def test_does_not_flag_a_genuine_reply_as_a_leak():
+    assert not is_preamble_leak("Sure, happy to help with that today.")
+    assert not is_preamble_leak("I am here.")
+    assert not is_preamble_leak(
+        "You are right, that meeting does start at nine."
+    )  # starts with "you are" but not the full signature phrase
