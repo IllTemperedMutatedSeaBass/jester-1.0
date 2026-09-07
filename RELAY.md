@@ -1469,3 +1469,101 @@ checking the `origin/main` ref, following the `git push origin main` that
 landed this STOP report (preceded by the DR-029–032 commit,
 dae93e85dd1776a58ebc2f5081bfc85d8338684a, also confirmed against
 origin/main at the time).
+
+## 2026-09-07 — Thread 1.0.12 (follow-up): DR-033, vector store and embedding posture — STOP report
+
+### Machine and repo verification
+
+Same session as thread 1.0.12's earlier STOP report, extending it. Both
+repos were re-fetched independently before this follow-up's edits: `jester-1.0`
+on `main`, level with `origin/main` at
+62943a97e906807acffda610bcaca3697db726bb (this thread's own prior close);
+`jesterai` on `master`, level with `origin/master` at
+31df1c086007608e3b31d4ede71589f118a4f993 (also this thread's own prior
+close). `jester-2.1` HEAD (read-only) was and remains
+c41dc92fd121dafaae39a50d68e7aa91e73f9756, confirmed by `git rev-parse HEAD`
+both before and after this follow-up's work. `HeathenS_Talkings` remains
+absent from `/home/jester` (searched to depth 2 again this follow-up).
+
+### What this session did
+
+Filed DR-033 in this repo's `DECISIONS.md`, alongside DR-032 (same "2026-09-07
+— Thread 1.0.12" dated section, same repo, per instruction to file it "in
+the same home, with the same numbering treatment"). DR-033 rules the vector
+store and embedding posture across streams, separated explicitly into three
+propositions rather than left collapsed:
+
+- **(a) shared technology — RULED YES:** both streams use Chroma.
+- **(b) shared store/collections — RULED NO:** separate persistent
+  directories per stream, no shared collections. Argued from DR-004 (streams
+  never concurrent — concurrency is not the risk) and from DR-008's own
+  filed text (verified this session: "must NOT be blended into one index,"
+  "two separate collections with two retrieval paths") — a shared store
+  turns 2.x's audit corpus surfacing in a 1.x board meeting from an
+  impossibility into a configuration error. Also reconciled against this
+  same thread's own DR-030 isolation ruling: a cross-stream-persistent store
+  is a standing exception to "the box is purged between sessions."
+- **(c) shared ingest code — RULED copy-then-diverge, not shared, not
+  extracted:** reconciled against `PORTFOLIO.md` §5 / `WAYS_OF_WORKING.md`
+  §12's standing cross-stream code-sharing rule and DR-012's existing
+  copy-then-diverge precedent for 2.x assets reused in 1.x — applied here to
+  the ingest pipeline (pdfplumber, python-docx, python-pptx, openpyxl,
+  beautifulsoup4, olefile, pytesseract) specifically.
+
+The embedding pin is ruled explicitly as the non-obvious failure mode:
+`nomic-embed-text` must be pinned by blob digest, not the mutable `:latest`
+tag, per DR-020's tag-and-digest principle applied to embeddings — a moved
+tag silently invalidates an existing store's vectors with no error at
+write or read time. Checked and recorded this session: `ollama show
+--modelfile nomic-embed-text:latest` resolves to blob
+`sha256-970aa74c0a90ef7482477cf803618e776e173c007bf957f635f1015bfcfef0e6`
+(the registry-manifest identifier shown by `ollama list`,
+`0a109f422b47`, is a different, shorter identifier space, per the same
+distinction DR-020 already drew for the reasoning model — not the digest to
+pin). Ruled that any store must record the embedding-model digest it was
+built with, so a mismatch is detectable at store-open time rather than
+silent.
+
+Recorded explicitly as NOT decided: the embedding model's fitness on its
+merits — `nomic-embed-text` is adopted as the incumbent for convenience,
+not an evaluated choice, and SEED §8 q2 (`jesterai/SEED_jester-1.0.md`)
+carries this forward as still open.
+
+`BACKLOG.md` (this repo) updated: what DR-033 makes buildable now (Chroma
+in a separate directory, digest-pinned embeddings, copy-then-diverge
+ingest) and what remains open (the digest-mismatch detection mechanism, the
+embedding-model-merits question, and the ingest fork-point/provenance hash
+not yet chosen).
+
+`jesterai/SEED_jester-1.0.md` §8 q2 annotated in place with a pointer to
+DR-033 and its "Last updated" line re-stamped — see that repo's own STOP
+report entry for the corresponding detail; not duplicated here.
+
+### Manual steps remaining (Claude.ai UI)
+
+- **Sync now** on both the jester-1.0 and jesterai Claude.ai projects.
+- **project-knowledge allowlist**: no new files created this follow-up
+  (only existing `DECISIONS.md`, `BACKLOG.md`, `SEED_jester-1.0.md`
+  edited) — no allowlist action needed.
+- **chat rename**: no change needed beyond thread 1.0.12's existing rename
+  (this is the same thread, extended).
+
+### SHAs stated in this report (repeated, per this session's instruction — full 40 characters, in prose)
+
+`jester-1.0` origin/main at the start of this follow-up, read after an
+independent `git fetch origin` checking the `origin/main` ref, was
+62943a97e906807acffda610bcaca3697db726bb — this thread's own prior close.
+After the DR-033/BACKLOG.md commit, origin/main was independently
+re-verified at 56fbc2060fb778b45793b9979119a794bee70ed1. `jesterai`
+origin/master at the start of this follow-up was
+31df1c086007608e3b31d4ede71589f118a4f993 — also this thread's own prior
+close — and after the SEED annotation commit stood at
+37cb6bc2916d1286f493345596a7a9c36ade47fb. `jester-2.1` HEAD, read-only, was
+c41dc92fd121dafaae39a50d68e7aa91e73f9756 both before and after this
+follow-up's work, confirmed by a second `git -C jester-2.1 rev-parse HEAD`.
+
+### Proof-of-push
+
+Pending: recorded in an addendum immediately below, after this entry is
+committed, pushed, and its hash independently re-verified against
+`origin/main`.
