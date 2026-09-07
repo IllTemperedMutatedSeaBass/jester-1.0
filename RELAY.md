@@ -821,3 +821,172 @@ that landed this STOP report and the DECISIONS.md/BACKLOG.md/code
 updates.
 
 - This session's commit SHA (repeated): 0321b94a78a3164efd3c8bdb8fc6a240c2d22bd2
+
+## 2026-09-07 — Thread 1.0.10: Bar B re-anchored at 16 GiB, carve record corrected
+
+**Machine/repo check at start.** `hostname` → `jesterai`; `whoami` →
+`jester`; `pwd` → `/home/jester`; `/home/jester/jester-1.0` present, as
+required before proceeding. Both this repo and `jesterai` were level
+with `origin` after an independent `git fetch` at session start.
+`jester-1.0` was NOT clean: `c5_orchestrator/src/c5_orchestrator/main.py`
+had an uncommitted change left by the stalled prior attempt at this
+thread. Inspected before deciding what to do with it (see below) rather
+than discarded or committed blind.
+
+**Task 1 — stray-process sweep.** No C1/C2/C4/C5 processes, monitors,
+screen/tmux sessions, or stray shells from the stalled attempt or thread
+1.0.9 were found running (`ps aux`, `screen -ls`, `tmux ls`). Audio
+devices (`/dev/snd/*`) were held only by pipewire/wireplumber — the
+audio server itself, expected. One unrelated persistent service was
+running (`jester-2.1`'s uvicorn app, port 8000) — left alone, out of
+scope, a different repo.
+
+**Task 2 — headset ownership.** `bluetoothctl info` confirmed the CX
+6.00BT headset bonded, paired, trusted, and connected; `hcitool con`
+confirmed the active ACL connection is to *this* box (`jesterai`), not
+elsewhere — no need to have the operator disconnect anything remotely.
+However, the live PipeWire profile was `a2dp-sink` (codec aptX,
+playback-only, no mic path) despite `ops/ensure_hfp.sh` having wired the
+HFP switch in thread 1.0.9. With the operator's explicit permission
+(`wpctl set-profile` is a live-device-state change the sandbox's auto
+classifier blocks by default), switched to `headset-head-unit` and
+verified codec `msbc` from `pw-dump` on both the resulting source and
+sink nodes.
+
+**Investigated why `ensure_hfp.sh` hadn't already done this.** Found the
+script's own verification logic was already correct (confirmed by
+re-running it: it detects, switches, polls, and fails loudly if the
+result isn't `msbc`) and had already run successfully earlier this
+session (08:27-08:31, evidenced by real ASR transcripts in
+`logs/c1.jsonl` from that run — impossible under A2DP, which has no mic
+path at all). The actual finding: **the HFP switch does not survive an
+idle period.** WirePlumber ranks `a2dp-sink` (priority 134) above
+`headset-head-unit` (priority 7) in its `EnumProfile` list and reverts to
+A2DP once nothing is actively driving the SCO/HFP link — which is exactly
+what happened between that 08:31 run ending and my own check ~20 minutes
+later. Not a no-op bug; a durability gap. Corrected the script's
+misleading "permanent" framing and hardened its msbc verification to
+match on the specific device's bluetooth address rather than any node
+reporting that profile (defensive, in case a second bluetooth device is
+ever bonded). Committed as part of the harness-restructuring commit
+below (a641163) since both changes serve the same "make Task 4 land
+cleanly" goal.
+
+**Task 3 — configuration read.** Live UMA carve
+(`/sys/class/drm/card1/device/mem_info_vram_total`) = `17179869184`
+bytes = **16.0 GiB**, matching what the operator set in BIOS — no
+mismatch to stop on. Kernel `7.0.0-31-generic`. `MemTotal` (OS-visible)
+≈14.76 GiB, consistent with a 16 GiB carve out of a larger physical pool.
+Model blob digest `sha256-90ce98129eb3e8cc57e62433d500c97c624b1e3af1fcc85dd3b55ad7e0313e9f`,
+confirmed both from `ollama show gemma4-e4b-bakeoff:latest --modelfile`
+and cross-checked against the actually-running `llama-server` process's
+`--model` argument — model unchanged, per instruction.
+
+**Task 4 — harness restructuring.** Root cause of the prior stalled
+attempt: the turn prompt ("SPEAK NOW") was printed to `sys.stderr`, and
+`ops/run_d0.sh` redirects C5's stderr straight to `logs/c5.jsonl` — the
+prompt never reached any terminal at all, regardless of buffering. The
+stalled attempt's own uncommitted fix (switch to stdout, `flush=True`)
+was the correct direction; verified it and kept it rather than
+reinventing it, and it is credited to that attempt in the commit
+message, not claimed as this session's own discovery. Added
+`C5_TRANSCRIBE_TIMEOUT_S` (default raised 120s → 300s, configurable) so
+a human reading a freshly-visible prompt over SSH has a realistic
+window; the value now prints alongside the run and is recorded with the
+Bar B figure (DR-026).
+
+Verified the restructured plumbing with a non-interactive smoke test
+before handing off. First attempt (a `pw-loopback` virtual mic routed as
+PipeWire's default source) hit real topology problems — wrong node
+targeted for playback, default-source state left dangling after a
+restart — and was abandoned after consuming real time rather than
+patched further; consulted `advisor()` at that point, which recommended
+the simpler and more robust path taken instead: a `C1_CAPTURE_WAV`
+file-source mode added to `Endpointer` (VAD/endpointing logic itself
+untouched, only the audio source), verified against 3 turns end-to-end
+at the live 16 GiB carve (all 3 `turn_done`, processes exited cleanly).
+This proves C1(ASR)→C5→C2→C4→playout plumbing; it does NOT exercise the
+bluez HFP mic capture path itself, which is separately evidenced by
+`ensure_hfp.sh`'s verified msbc confirmation and the real transcripts in
+this morning's 08:27-08:31 run. Reported that coverage gap explicitly
+rather than implying full coverage. Cleaned up the loopback/stray
+processes and confirmed the live default source/sink were back on the
+real bluez HFP nodes (`*` markers on `bluez_input`/`bluez_output` in
+`wpctl status`) before handing the run over — a stale "Settings > Default
+Configured Devices" label pointing at the dead loopback node is
+cosmetic, not live state, and was left as-is (no functional effect,
+confirmed against the live Filters section).
+
+Printed the exact handoff command
+(`C5_TURN_COUNT=20 C5_TRANSCRIBE_TIMEOUT_S=300 ops/run_d0.sh --turns 20`)
+and the log output paths, warned the operator that `run_d0.sh` truncates
+logs on every run (`2>`, not `2>>`) so a second run would destroy the
+first run's figures, and stopped — did not drive or relay the spoken run
+myself, per instruction and per the chat-relay failure mode recorded in
+`BACKLOG.md`.
+
+**Task 5 — figures, from the operator's own 20-turn spoken run.** Ran
+`c5_orchestrator.bar_b_harness` against the returned `logs/*.jsonl`: 20/20
+turns complete, **T_ttfa median 3.076 s, p90 4.959 s**, kill switch (median
+> 8 s) NOT fired. Full per-stage decomposition, the 40-token-cap finding
+(one turn, turn 18, hit the cap exactly), the comparison against 1.0.9's
+4.28 s/5.84 s at 2 GiB, and the carve-vs-GTT residency measurement
+(sysfs: `mem_info_vram_used` ≈4.26 GiB vs `mem_info_gtt_used` ≈50 MiB
+with the model loaded — no `rocm-smi`/`rocminfo`/`amd-smi` on this box,
+confirmed by search) are all recorded in full in DR-026, not repeated
+here. Reading: moderately favours "the carve was binding at 2 GiB" over
+"ROCm was already using GTT," not proven from a single pair of runs.
+
+Investigated, not silently fixed, the operator's two flagged findings:
+turn 9's leaked `<end_of_turn>` literal (its token count and T_ttfa are
+unremarkable against the run's own spread — retained, not excluded,
+filed against DR-024 as an unresolved raw-generate stop-sequence gap),
+and Kokoro's handling of C2's emoji/stage-direction output (tested
+directly against the running `KokoroEngine`: voiced, not dropped,
+inflating synthesis time 50-100% in the test strings tried — recorded in
+`BACKLOG.md` for the next session that touches C2's system prompt, not
+fixed now since that would void this run's own figure). Both detailed
+in DR-026.
+
+**Task 6 — carve record correction.** Filed in `jesterai/box/HARDWARE.md`
+§2 and `jesterai/DECISIONS.md` (dated, unnumbered heading, per that
+repo's convention) — not here, since it is box-level, not stream-level,
+per this repo's own `CLAUDE.md` DR-016 split. See that repo's own STOP
+report for detail.
+
+**Untouched-repo proof.** `jester-2.1`: read-only
+`git -C /home/jester/jester-2.1 rev-parse HEAD` =
+`c41dc92fd121dafaae39a50d68e7aa91e73f9756`, checked at both the start
+and the end of this session — unchanged, repo untouched.
+`HeathenS_Talkings`: confirmed absent from the box
+(`find /home/jester -maxdepth 1 -iname "*heathen*"` returned nothing) —
+no such repo exists here to touch.
+
+### Manual steps remaining (Claude.ai UI)
+
+- **Sync now** on the jester-1.0 project.
+- **project-knowledge allowlist**: no new files this session (all edits
+  were to existing files: `c1_capture/capture.py`, `c1_capture/config.py`,
+  `c5_orchestrator/config.py`, `c5_orchestrator/main.py`,
+  `ops/ensure_hfp.sh`, `DECISIONS.md`, `BACKLOG.md`, `RELAY.md`).
+- **chat rename** check: thread 1.0.10, "Bar B re-anchored at 16 GiB
+  (T_ttfa median 3.08s), carve record corrected" or similar.
+
+### SHAs stated in this report (repeated, per this session's instruction)
+
+- jester-1.0 origin/main at session start: 3a726b521bf547635d8c5dffb7c9f148a9b37347
+- jester-1.0 origin/main after the harness-restructuring commit (Task 4):
+  a64116352c34684f44a974004b2454626833ecd
+- jester-1.0 origin/main after the DR-026/BACKLOG commit (Task 5-6):
+  1d63a1c7cdbf96c65be3263a2ca5bb8c6aa72af7
+- jesterai origin/master at session start: 224a1c2a6f3e29f0119b30681f957c2aa4bd202d
+- jesterai origin/master after this session's commits:
+  b0288d3e8f00cd085049458e6f45387c4bbd8a15
+- jester-2.1 HEAD (read-only, before and after this session, unchanged):
+  c41dc92fd121dafaae39a50d68e7aa91e73f9756
+
+### Proof-of-push
+
+This STOP report will be committed and pushed after it is written; the
+real hash, read from origin after an independent fetch, is quoted in an
+addendum immediately following.
