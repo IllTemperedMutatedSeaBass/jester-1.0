@@ -1170,3 +1170,162 @@ checking the `origin/main` ref, following the `git push origin main` that
 landed this STOP report (and the DR-027/BACKLOG commit before it,
 177f088d02644600eb929e9cae1762e7a9088ebb, also confirmed against
 origin/main at the time).
+
+---
+
+## 2026-09-07 — Thread 1.0.11 (continued): two defects investigated, Bar B held provisional, second re-run handed off
+
+Follows this file's prior thread-1.0.11 entry (Tasks 1-4 and 6, first
+pass). The operator's 20-turn spoken run landed in
+`logs/run_20260907T095156Z/`, confirming Task 3's emoji/stage-direction
+suppression worked, and surfaced two new things to investigate before
+trusting a figure from it.
+
+### Defect 1 — prompt leakage (blocking, fixed and live-verified)
+
+Full writeup in `DECISIONS.md` DR-028. Summary: turns 6 and 9 synthesized
+a 40-token-cap-truncated copy of C2's own system preamble instead of a
+reply. Root-caused by live reproduction (not guesswork) — started
+`c2_reason` directly, drove it through repetitive filler content
+approximating a timing-calibration script, and reproduced the exact
+failure signature (verbatim preamble echo, cap-hit at 40 tokens) twice.
+Mechanism: raw-mode completion (DR-024) with no chat-template-enforced
+turn boundary drifts into copying nearby prompt text when the transcript
+is repetitive and information-free (no retrieval yet, no assistant-turn
+history ever appended to the transcript).
+
+**Fixed three ways:** a recency-placed anti-echo reminder in the prompt
+(`c2_reason/prompt.py`), C2-side detection-and-replacement with a new
+`preamble_leak_detected` log event (`c2_reason/main.py`), and an
+independent C4-side backstop that refuses to synthesize a detected leak,
+skipping the TTS engine call entirely rather than risk it on empty text
+(`c4_speech/text_filter.py`, `c4_speech/main.py`).
+
+**Verification:** 14/14 unit tests pass (4 new cases in
+`c4_speech/tests/test_text_filter.py`, covering a full and a
+cap-truncated leaked preamble, both stripping to `""`, and two
+false-positive guards). Live-verified against the exact stress sequence
+that reproduced the bug pre-fix, run twice (30 turns total): **zero
+leaks, zero `preamble_leak_detected` events**. The C4 backstop was also
+verified in isolation by posting the leaked preamble text straight to
+`/synthesize`, bypassing C2 entirely — caught, engine call skipped, valid
+silent WAV returned. All investigation processes were started on
+alternate ports and killed cleanly afterward.
+
+**Decision: turns 6 and 9 are EXCLUDED from this run's figure**, not
+retained (unlike DR-020's retain call on a different, much smaller
+leaked-marker case) — their T_ttfa measured time-to-speak-a-prompt-echo,
+not time-to-first-audio-on-a-reply, a different quantity from what Bar B
+characterizes.
+
+### Defect 2 — connection reuse and repetition (non-blocking, explained, recorded in BACKLOG)
+
+Port stability from turn 11 onward is ordinary `httpx` connection-pool
+keep-alive reuse (default 5 s expiry) contingent on inter-turn timing —
+confirmed by reading `c5_orchestrator/main.py`'s single-client-for-the
+-whole-loop code, not inferred. `prompt_eval_count` grows smoothly with
+no spike or reset near turn 11, ruling out a cache-corruption
+explanation — G1's prefix reuse is working continuously, as designed.
+The reply repetition itself was reproduced live in the same
+investigation: a repetitive, information-free transcript (no retrieval,
+no assistant-turn history) reliably produces short, repetitive replies.
+**Verdict: expected D0 behaviour given already-documented design gaps,
+not a bug.** Recorded in `BACKLOG.md`, not fixed here.
+
+### Task 5 — figure computed, held PROVISIONAL
+
+Arithmetic over `logs/run_20260907T095156Z/`:
+
+- All 20 turns: T_ttfa median **2.705 s**, p90 **4.987 s**.
+- Excluding the two leaked-preamble turns (n=18): T_ttfa median
+  **2.626 s**, p90 **3.937 s**.
+- Kill switch (median > 8 s): NOT fired, either way.
+- Live carve: **16.0 GiB** (read fresh, unchanged). Kernel:
+  `7.0.0-31-generic` (unchanged). Model digest:
+  `sha256-90ce98129eb3e8cc57e62433d500c97c624b1e3af1fcc85dd3b55ad7e0313e9f`
+  (unchanged, confirmed against the live running process, not just
+  `.env`). No change was made to the model or the carve this session, as
+  instructed.
+
+**Neither figure above is adopted as the new Bar B anchor.** Turns 6/9
+are the two SLOWEST turns in the run, so excluding them moves p90 by 21%
+(4.987 s → 3.937 s) while barely moving the median (2.705 s → 2.626 s,
+robust to two outliers out of twenty) — the fix is verified synthetically
+and via direct HTTP stress-testing, but NOT yet on an actual spoken run
+with real microphone/VAD/HFP timing, which is the only measurement DR-017
+counts. **One more clean 20-turn operator spoken run is recommended
+before either figure above supersedes DR-026's 3.076 s / 4.959 s.**
+
+**Comparison against DR-026, graded for strength, not overclaimed:**
+Median dropped 0.37-0.45 s (12-15%), directionally consistent with the
+emoji-suppression fix (DR-020 measured 52-104% synthesis-time inflation
+per instance) — a weak-to-moderate signal given n=1 run on each side with
+uncontrolled content variance. **p90 is not currently interpretable**:
+the all-20 figure looks unchanged from DR-026 only because defect 1
+coincidentally occupies what might otherwise have been the tail's fast
+end; the excluding-leaks figure's 21% drop cannot be cleanly attributed
+to the emoji fix either, since it comes from a run with a different,
+unrelated defect actively distorting exactly the turns being compared. A
+clean re-run is needed before any p90 attribution claim is defensible.
+
+### Handoff — second spoken run
+
+**Operator: run the twenty-turn spoken Bar B measurement again, in your
+own SSH terminal, from `/home/jester/jester-1.0`, with this session's
+preamble-leak fix now in place:**
+
+    ops/run_d0.sh --turns 20
+
+Output lands in a fresh `logs/run_<UTC timestamp>/` directory (printed at
+startup; also reachable via `logs/latest`) — the prior run in
+`logs/run_20260907T095156Z/` is untouched and not overwritten. Not driven
+by this session, no background monitor started, per instruction.
+
+### Records (Task 6, this continuation)
+
+- `DECISIONS.md`: DR-028 filed (next free number after DR-027, confirmed
+  against both this file and `jesterai/DECISIONS.md` before assigning
+  it). Covers both defects, the fix, its verification, the turns-6/9
+  exclusion decision, the provisional-figure decision, and the
+  strength-graded comparison against DR-026.
+- `BACKLOG.md`: new Open item for the human-side-only, never-truncated,
+  retrieval-free rolling transcript (the shared root cause behind both
+  the leak and the repetition); the DR-027 emoji-suppression Done item
+  gained a new Done entry describing DR-028's fix on top of it.
+- `jesterai`: still not touched — nothing box-level surfaced.
+
+**Untouched-repo proof (re-checked this continuation).** `jester-2.1`:
+read-only `git -C /home/jester/jester-2.1 rev-parse HEAD` =
+`c41dc92fd121dafaae39a50d68e7aa91e73f9756` — same value as the first
+thread-1.0.11 STOP report above, still unchanged.
+`HeathenS_Talkings`: `find /home/jester -maxdepth 1 -iname "*heathen*"`
+returned nothing again — still absent, still nothing to touch.
+
+### Manual steps remaining (Claude.ai UI)
+
+- **Sync now** on the jester-1.0 project.
+- **project-knowledge allowlist**: no new files this continuation (all
+  edits were to files already listed in the prior thread-1.0.11 entry,
+  except `c2_reason/src/c2_reason/main.py`, which is not new either).
+- **chat rename** check: if this continuation is a distinct chat, thread
+  1.0.11, "Preamble-leak defect fixed and live-verified, Bar B held
+  provisional, second spoken run handed off" or similar.
+
+### SHAs stated in this report (repeated, per this session's instruction — full 40 characters)
+
+- jester-1.0 origin/main at the start of this continuation (= end of the
+  first thread-1.0.11 STOP report): ab0135dd19245a2b99f7adaa2d58689aa4bec19e
+- jester-1.0 origin/main after this continuation's DR-028 commit:
+  a99ce44550911f01778186c1d69a02f8ddc268fc
+- jesterai origin/master (unchanged, not touched this session):
+  b0288d3e8f00cd085049458e6f45387c4bbd8a15
+- jester-2.1 HEAD (read-only, unchanged across both parts of this
+  session): c41dc92fd121dafaae39a50d68e7aa91e73f9756
+- Model blob digest in force (unchanged, DO NOT CHANGE honored):
+  sha256-90ce98129eb3e8cc57e62433d500c97c624b1e3af1fcc85dd3b55ad7e0313e9f
+
+### Proof-of-push
+
+Pending: recorded in an addendum immediately below, after this entry is
+committed, pushed, and its hash independently re-verified against
+`origin/main`.
