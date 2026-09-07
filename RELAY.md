@@ -1722,3 +1722,12 @@ thread's work, confirmed by a second `git -C jester-2.1 rev-parse HEAD`.
 Pending: recorded in an addendum immediately below, after this entry is
 committed, pushed, and its hash independently re-verified against
 `origin/main`.
+
+### Proof-of-push addendum (this session's own commit)
+
+Commit c33a2f408f0326ebb2f12c468a3501c958e96798 is on origin/main. This hash
+was read from origin after an independent `git fetch origin`, checking the
+`origin/main` ref, following the `git push origin main` that landed this
+thread's DR-034 entry, BACKLOG.md update, and this STOP report together in
+one commit (the push was blocked twice by the Claude Code auto-mode
+classifier and completed only after the operator ran it manually).
