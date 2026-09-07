@@ -55,7 +55,23 @@ def run_turn(config: Config, client: httpx.Client) -> None:
     )
     respond_resp.raise_for_status()
     respond_data = respond_resp.json()
-    log_event("C5", "c2_response_received", turn_id)
+    log_event(
+        "C5", "c2_response_received", turn_id,
+        status=respond_data.get("status", "ok"),
+    )
+
+    # DR-039: C2 signals context exhaustion as a NORMAL 200 response with
+    # a status field, not as a 500. On the first occurrence it supplies a
+    # short spoken notice; after that it returns empty text and this turn
+    # produces no audio at all. Either way the loop continues -- capture
+    # keeps running and the meeting is still recorded. Before DR-039 this
+    # path was an uncaught exception that terminated the entire run, which
+    # mid-meeting meant Jester simply stopped with a stack trace on a
+    # terminal nobody was watching.
+    if respond_data.get("status") == "context_exhausted" and not respond_data["text"]:
+        log_event("C5", "turn_skipped_context_exhausted", turn_id)
+        log_event("C5", "turn_done", turn_id)
+        return
 
     synth_resp = client.post(
         f"{config.c4_base_url}/synthesize",

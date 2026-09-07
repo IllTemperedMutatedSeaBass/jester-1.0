@@ -72,7 +72,10 @@ app = FastAPI()
 # One PromptBuilder per process: the stable prefix (preamble + rolling
 # transcript) accumulates across turns so G1's prefix reuse is exercised
 # call over call, not rebuilt from scratch each turn.
-prompt_builder = PromptBuilder(num_ctx=config.NUM_CTX)
+prompt_builder = PromptBuilder(
+    num_ctx=config.NUM_CTX,
+    guard_margin_tokens=config.CONTEXT_GUARD_MARGIN_TOKENS,
+)
 
 
 def _build_retriever():
@@ -123,6 +126,34 @@ class RespondResponse(BaseModel):
     model_digest: str
     retrieved_chunks: int = 0
     evidence_tokens_est: int = 0
+    # DR-039's overflow guard. "ok" on a normal turn; "context_exhausted"
+    # when the guard fired. C5 branches on this rather than on an
+    # exception, which is the whole point: an overflow must degrade one
+    # turn, never terminate the run.
+    status: str = "ok"
+
+
+STATUS_OK = "ok"
+STATUS_CONTEXT_EXHAUSTED = "context_exhausted"
+
+# Spoken ONCE, on the first overflow only. See DR-039 for the argument:
+# repeating this every turn would be worse than silence (once the window
+# is exhausted the transcript only grows, so EVERY subsequent turn
+# overflows), but saying nothing at all is ambiguous in a product whose
+# entire thesis is that silence is meaningful (DR-008).
+CONTEXT_EXHAUSTED_NOTICE = (
+    "I've reached the limit of what I can keep track of, so I'll stop "
+    "commenting from here. Carry on without me."
+)
+
+
+class _OverflowState:
+    """Process-level, matching `prompt_builder`'s own process-level scope
+    -- one C2 process serves one meeting at D0. Deliberately NOT
+    per-request: a flag that reset each turn would make Jester announce
+    its own failure twenty times in a row."""
+
+    announced = False
 
 
 @app.post("/respond", response_model=RespondResponse)
@@ -165,16 +196,66 @@ def respond(req: RespondRequest) -> RespondResponse:
 
     log_event("C2", "prefill_start", turn_id)
 
+    # The transcript line is appended even on an overflow turn: the
+    # transcript is the meeting's record, and dropping lines here would be
+    # a truncation policy by the back door (DR-013(b) reserves that to the
+    # operator). What the guard refuses to do is CALL THE MODEL.
     prompt_builder.append_transcript_line(req.speaker, req.text)
     try:
         prompt = prompt_builder.build(evidence=evidence)
     except PromptOverflowError as exc:
-        log_event("C2", "prompt_overflow", turn_id, error=str(exc))
-        raise
+        first_time = not _OverflowState.announced
+        _OverflowState.announced = True
+        log_event(
+            "C2",
+            "context_exhausted",
+            turn_id,
+            error=str(exc),
+            first_occurrence=first_time,
+            spoken_notice=first_time,
+            num_ctx=config.NUM_CTX,
+            guard_margin_tokens=prompt_builder.guard_margin_tokens,
+        )
+        # A controlled, successful HTTP response -- NOT a 500. A 500 here
+        # is what terminated the whole run before DR-039.
+        return RespondResponse(
+            turn_id=turn_id,
+            text=CONTEXT_EXHAUSTED_NOTICE if first_time else "",
+            max_tokens=config.MAX_TOKENS,
+            model=config.OLLAMA_MODEL,
+            model_digest=config.OLLAMA_MODEL_DIGEST,
+            retrieved_chunks=retrieval_result.total_chunks,
+            evidence_tokens_est=evidence_tokens_est,
+            status=STATUS_CONTEXT_EXHAUSTED,
+        )
 
     call_start = time.monotonic()
     result = generate(config, prompt)
     call_end = time.monotonic()
+
+    # DR-039 backstop. The guard above works off a chars-per-token
+    # ESTIMATE, not a tokenizer, so it can be wrong on unusual text.
+    # Ollama's own prompt_eval_count is ground truth for what it actually
+    # evaluated: if that comes back far below what we sent, Ollama
+    # truncated silently despite the guard and the reply is built on a
+    # mutilated prompt. That must be visible in the logs, because nothing
+    # else about the response would reveal it -- it returns HTTP 200 and
+    # reads as a normal answer.
+    prompt_tokens_est = estimate_tokens(prompt)
+    actual_prompt_tokens = result.get("prompt_eval_count", 0)
+    if actual_prompt_tokens and actual_prompt_tokens < prompt_tokens_est * 0.85:
+        log_event(
+            "C2",
+            "silent_truncation_detected",
+            turn_id,
+            prompt_tokens_est=prompt_tokens_est,
+            prompt_eval_count=actual_prompt_tokens,
+            num_ctx=config.NUM_CTX,
+            note="Ollama truncated the prompt despite the DR-039 guard; "
+                 "the cached prefix is destroyed and transcript was "
+                 "discarded. The guard margin or the token estimator "
+                 "needs revisiting.",
+        )
 
     prompt_eval_duration_s = result.get("prompt_eval_duration", 0) / 1e9
     eval_duration_s = result.get("eval_duration", 0) / 1e9

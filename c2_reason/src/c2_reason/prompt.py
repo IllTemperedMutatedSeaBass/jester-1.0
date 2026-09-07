@@ -103,9 +103,18 @@ class PromptBuilder:
         self,
         num_ctx: int,
         chars_per_token_estimate: float = CHARS_PER_TOKEN_ESTIMATE,
+        guard_margin_tokens: int = 512,
     ):
         self.num_ctx = num_ctx
         self._chars_per_token_estimate = chars_per_token_estimate
+        # DR-039: the guard must fire BEFORE Ollama's own limit, not at it.
+        # Ollama does not error when a prompt reaches num_ctx -- it
+        # SILENTLY truncates to ~num_ctx/2 (keeping ~5 leading tokens plus
+        # the tail) and returns HTTP 200, which would destroy the cached
+        # prefix and discard transcript with nothing raised anywhere. The
+        # margin covers error in the chars-per-token estimate, which is an
+        # estimate and not a tokenizer.
+        self.guard_margin_tokens = guard_margin_tokens
         self._transcript_lines: list[str] = []
 
     def append_transcript_line(self, speaker: str, text: str) -> None:
@@ -141,13 +150,16 @@ class PromptBuilder:
         prompt = _TURN_OPEN + body + _TURN_CLOSE
 
         est_tokens = len(prompt) / self._chars_per_token_estimate
-        if est_tokens >= self.num_ctx:
+        budget = self.num_ctx - self.guard_margin_tokens
+        if est_tokens >= budget:
             raise PromptOverflowError(
-                f"Estimated prompt tokens ({est_tokens:.0f}) at or over "
-                f"num_ctx ({self.num_ctx}); transcript region "
+                f"Estimated prompt tokens ({est_tokens:.0f}) at or over the "
+                f"guarded budget ({budget} = num_ctx {self.num_ctx} minus a "
+                f"{self.guard_margin_tokens}-token margin); transcript region "
                 f"{estimate_tokens(self.stable_prefix())} tokens, evidence "
                 f"region {estimate_tokens(evidence or '')} tokens. "
-                f"Transcript truncation is UNDECIDED (DR-013b) -- failing "
-                f"loudly rather than inventing a truncation policy."
+                f"Transcript truncation is UNDECIDED (DR-013b) -- refusing "
+                f"to call the model rather than inventing a truncation "
+                f"policy, and refusing to let Ollama silently truncate."
             )
         return prompt

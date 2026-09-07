@@ -2080,3 +2080,169 @@ same method.
 
 This entry is an append; no prior entry above is edited, per the append-only rule for
 this file.
+
+---
+
+## STOP REPORT — Thread 1.0.15 (context window: measure the ceiling, catch the overflow, file the design) — 2026-09-07
+
+**Machine authority.** Verified before any work: `hostname` `jesterai`,
+`whoami` `jester`, `/home/jester/jester-1.0` present. `pwd` reported
+`/home/jester/jester-1.0` rather than the stated launch directory
+`/home/jester` — the shell's carried-over working directory, recorded for
+completeness; neither stop condition applied and nothing was deferred.
+
+**Branch authority.** No harness branch assigned; worked on `main`.
+
+**Task 1 — repos clean and level; what the records bind.** Both clean and
+level with origin after an independent `git fetch origin` (SHAs in prose
+below and listed again at the end). Highest DR across both repos is DR-038
+in `jester-1.0`; `jesterai`'s own numbered DRs remain frozen at DR-015 and
+`jester-2.1` has no `DECISIONS.md`, so this thread assigned DR-039 onward.
+DR-013(a) binds the append-after-transcript ordering, untouched and still
+enforced by test. DR-013(b) left truncation undecided and is NOT closed by
+this thread — it is made decidable. DR-036 supplied the overflow failure
+mode and the 190 tok/min assumption this thread re-examined. DR-037/DR-038
+supplied the prefill-versus-evidence-tokens relationship the sweep extends.
+
+**Task 2 — THE OVERFLOW IS CAUGHT (DR-039).** C2 now detects that the
+assembled prompt exceeds a guarded budget BEFORE calling Ollama and returns
+HTTP 200 with `status: "context_exhausted"` instead of a 500. C5 branches
+on that field. Behaviour was argued rather than picked: **announce once,
+then stay silent, and keep the run alive.** Repeating an apology would mean
+twenty identical apologies in a twenty-turn meeting, because once the
+window is exhausted every subsequent turn overflows; but pure silence is
+ambiguous in a product whose entire thesis (DR-008) is that silence is a
+MEANINGFUL output, so overloading it with "I have broken" makes the real
+signal unreadable. One unambiguous notice, then silence, with capture still
+running.
+
+**A finding that changed the guard's design, and was not previously
+known: Ollama does NOT error when a prompt exceeds num_ctx — it SILENTLY
+TRUNCATES and returns HTTP 200.** Read directly from the Ollama server log:
+`msg="truncating input prompt" limit=4099 prompt=15720 keep=5 new=4099`,
+cutting to ~`num_ctx/2` (confirmed at all three windows: 4099/8195/16387)
+and keeping ~5 leading tokens plus a tail. So the pre-existing guard was
+doing more work than DR-036 credited it with — without it, overflow is
+silent data loss rather than a crash — and a guard firing AT num_ctx fires
+too late. It now fires at num_ctx minus a configurable 512-token margin,
+with a second backstop that compares Ollama's own `prompt_eval_count`
+against the estimate and logs `silent_truncation_detected` if the estimator
+was ever wrong enough to let a cut through.
+
+**Proven by forcing the condition.** Nine new tests. Five in
+`c2_reason/tests/test_overflow_guard.py` drive the real app through
+`TestClient`; four in `c5_orchestrator/tests/test_overflow_survival.py`
+drive the REAL `run_turn` against a stub transport — **that is the test
+that matters, because the death happened in C5, not C2** — asserting the
+loop survives twenty consecutive overflow turns, makes no audio on a silent
+one, does speak the first notice, and still propagates a genuine 500 so the
+guard has not become a blanket swallow. MUTATION-CHECKED: restoring the
+pre-DR-039 `raise` failed three of the five C2 tests; then reverted. Suite
+totals now 20 in `c2_reason`, 4 in `c5_orchestrator`, 14 in `c4_speech`.
+The guard is NOT a truncation policy and a test asserts the overflow turn's
+transcript line is still appended, so it cannot drift into one.
+
+**Task 3 — the num_ctx trade-off measured (DR-040).** `ops/ctx_sweep.py`,
+committed. **A gating check was run first because the whole sweep would
+otherwise have been fiction:** the Modelfile pins `PARAMETER num_ctx 8192`,
+and it was verified that a request-level override actually takes (15,720
+tokens evaluated in full at 16384; `/api/ps` reporting `context_length:
+16384`) and that Ollama RELOADS on a change of setting.
+
+**THE CENTRAL FINDING, and it inverts the premise the task carried in:
+delta prefill tracks ACTUAL CONTEXT OCCUPANCY, not the num_ctx setting.**
+At ~5,060 tokens the delta prefill is 1.603 s under an 8192 window and
+1.565 s under 16384; at ~10,222 tokens it is 1.771 s under 16384 and
+1.772 s under 32768. **The setting is free; only what is actually put in
+the window costs anything.** Cold prefill does degrade with length (674
+tokens/s at 2.5k falling to 520 at 31k — the super-linear attention cost,
+present but mild), and its real significance is the cost of a truncation
+CUT: ~11 s at a full 8192, ~25 s at 16384, ~60 s at 32768. Memory was
+verified rather than assumed: ROCm compute buffer 221 / 237 / 269 MiB
+across the three settings, a 48 MiB spread against a 16 GiB carve. **The
+carve was not changed.**
+
+**The speech rate was derived rather than assumed, and the derivation
+failed honestly.** 46 of 58 recorded turns have a `capture_wait_start` to
+`endpoint_declared` span of exactly 0.0 s — C1's VAD often has audio
+already buffered — so their naive rates (medians in the tens of thousands
+of tokens/minute) are artefacts. The 12 non-degenerate turns give a median
+**143 tok/min** (range 82–196), and that is still a FLOOR, because the span
+includes pre-speech waiting and end-silence detection and C1 logs no
+speech-onset event. **DR-036's assumed 190 tok/min is retained as the
+planning figure** — not confirmed, but above the measured floor, and a
+higher rate yields a shorter and therefore safer ceiling. Carried to
+`BACKLOG.md` as the cheapest high-value fix available: one speech-onset
+timestamp in C1 settles it in a single run.
+
+**RECOMMENDATION AND RULING: num_ctx 16384**, now set in `.env`. It covers
+the actual use case where 8192 does not — a board meeting runs 60–90
+minutes and 8192 gives ~36 at the planning rate, so Jester would go silent
+before half time, against ~80 minutes at 16384. The per-turn cost is ~zero
+early and ~+0.29 s at the far end. 32768 was measured and rejected for now:
+it buys 166 minutes, well past the use case, while raising far-end prefill
+to 2.52 s and — more importantly — raising the cost of a future truncation
+cut to ~60 s, which would foreclose DR-041's option (b). One environment
+variable reverses the decision.
+
+**Task 4 — smoke test PASSED at the new setting, spoken run HANDED OVER,
+NOT YET RUN.** Four turns non-interactive: retrieval fired on every turn,
+`/api/ps` confirmed the model loaded at `context_length: 16384`, prefill
+1.35–1.74 s at ~900–1,160 tokens occupancy — indistinguishable from thread
+1.0.14's 1.48–1.98 s at 8192, which confirms the occupancy-not-setting
+finding on the live service path rather than only in the synthetic sweep.
+Zero `silent_truncation_detected` and zero `context_exhausted` events.
+**The twenty-turn spoken Bar B run at 16384 has not happened** and is not
+driven from chat; the figure, its comparison against D0's 3.076 s / 4.959 s
+and against thread 1.0.14's 4.035 s / 4.763 s, and DR-017's kill-switch
+determination will be filed as their own entry on the operator's return.
+
+**Task 5 — context-management design FILED, not built (DR-041).** All five
+options assessed with a recommended order of work. Two judgements worth
+surfacing here: **(c) rolling summarisation is not recommended alone at any
+point** — it discards exactly the specifics DR-008 makes the product's
+differentiator, and "we discussed the vendor contract" has thrown away the
+detail that would have triggered the interjection; and **(d)'s tension is a
+governance decision, not an engineering one** — it would write verbatim
+live meeting transcript into a store DR-030 says must be purged between
+sessions, which is materially worse than the existing exception because it
+is a recording of what people said in a private meeting rather than
+documents a client supplied. DR-041 recommends DR-030's purge mechanism
+exist BEFORE (d) is built. The operator's proposal (e) is recorded as
+offered and, as the operator framed it, as the social PACKAGING of (c)/(d)
+rather than a substitute — with its three limitations recorded, including
+that a heated exchange is exactly when nobody pauses and also when the
+transcript fills fastest, which is why a hard fallback is needed regardless.
+
+**Disagreement recorded.** This thread's framing was that a larger window
+"buys meeting minutes at the price of prefill time, which sits directly in
+T_ttfa." The measurement does not support that as stated: the price is paid
+for OCCUPANCY, not for the setting, so raising the window is close to free
+until the meeting actually gets long. Recorded because the recommendation
+would have been a much closer call had the premise held.
+
+**Untouched-repo proof.** `jester-2.1` HEAD, read-only,
+c41dc92fd121dafaae39a50d68e7aa91e73f9756 before and after, `status
+--porcelain` empty; its files were NOT read this thread — no
+copy-then-diverge was required, so DR-033(c) raised no tension with the
+read-only scope. `jesterai` HEAD 605de619019651f53a818b83c848036a91bd72e8
+throughout, empty status, not written — no box-level finding required
+filing. `HeathenS_Talkings`: stated absence, no such directory on this box.
+`/mnt/jester_in` was not written or read this thread.
+
+### SHAs stated in this report (full 40 characters, in prose)
+
+`jester-1.0` local HEAD and origin/main, read after an independent `git
+fetch origin` checking the `origin/main` ref and cross-checked with `git
+ls-remote origin refs/heads/main`, were both
+61834f94a00e49466c03e74c55d321bf05b1130d at the start of this thread.
+`jester-2.1` HEAD, read-only, was
+c41dc92fd121dafaae39a50d68e7aa91e73f9756 both before and after this
+thread's work. `jesterai` HEAD was
+605de619019651f53a818b83c848036a91bd72e8 throughout and was not written.
+
+### Proof-of-push
+
+Pending: recorded in an addendum below once this entry is committed,
+pushed, and its hash independently re-verified against `origin/main` after
+a fresh `git fetch origin`.

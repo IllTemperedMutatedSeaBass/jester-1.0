@@ -26,6 +26,13 @@ class Config:
     OLLAMA_MODEL_DIGEST = _require("OLLAMA_MODEL_DIGEST")
     MAX_TOKENS = int(os.environ.get("C2_MAX_TOKENS", "40"))
     NUM_CTX = int(os.environ.get("C2_NUM_CTX", "8192"))
+    # DR-039: how far below num_ctx the overflow guard fires. Covers error
+    # in the chars-per-token estimate, which is an estimate and not a
+    # tokenizer. Must stay > 0: at exactly num_ctx, Ollama truncates
+    # silently rather than erroring.
+    CONTEXT_GUARD_MARGIN_TOKENS = int(
+        os.environ.get("C2_CONTEXT_GUARD_MARGIN_TOKENS", "512")
+    )
 
     # --- Retrieval (thread 1.0.14, DR-032/DR-033/DR-008) ---------------
     # RETRIEVAL_ENABLED exists so the D0-without-retrieval baseline

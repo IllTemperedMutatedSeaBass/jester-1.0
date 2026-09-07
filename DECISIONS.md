@@ -1851,3 +1851,349 @@ not materialise this run. That is one clean run, not a fix; the gap in
 
 This entry is an append; no prior entry above is edited, per the append-only rule for
 this file.
+
+## 2026-09-07 — Thread 1.0.15: context window measured, overflow caught, design filed
+
+### DR-039 — CONTEXT OVERFLOW IS CAUGHT AT C2 AND DEGRADES ONE TURN INSTEAD OF TERMINATING THE RUN; JESTER ANNOUNCES EXHAUSTION ONCE AND IS SILENT THEREAFTER. THIS IS A GUARD, NOT A TRUNCATION POLICY (2026-09-07)
+
+**The defect.** DR-036 recorded it: `PromptOverflowError` propagated out of
+`main.respond()` as a FastAPI 500, `c5_orchestrator.main.run_turn`'s
+`respond_resp.raise_for_status()` was caught by nothing in `run_turn` or in
+`main()`'s turn loop, and the ENTIRE RUN terminated. Mid-meeting that is
+Jester stopping dead with a stack trace on a terminal nobody is watching.
+
+**A FINDING THAT CHANGES THE GUARD'S DESIGN, measured on this box this
+session and not previously known: Ollama does NOT error when a prompt
+exceeds `num_ctx`. It SILENTLY TRUNCATES and returns HTTP 200.** Verified
+directly from the Ollama server log: `msg="truncating input prompt"
+limit=4099 prompt=15720 keep=5 new=4099`. The truncated size is
+approximately `num_ctx/2` and was confirmed at all three window sizes
+swept (4099 at 8192, 8195 at 16384, 16387 at 32768 — i.e. `num_ctx/2 + 3`),
+keeping only ~5 leading tokens plus a tail and discarding the middle. The
+API response carries no indication whatsoever. Two consequences:
+  - The existing guard was doing more real work than DR-036 credited it
+    with. Without it, an over-long prompt is not a crash but SILENT DATA
+    LOSS plus a destroyed cached prefix — worse, because nothing surfaces.
+  - A guard that fires AT `num_ctx` fires too late. The guard now fires at
+    `num_ctx` minus a configurable margin (`C2_CONTEXT_GUARD_MARGIN_TOKENS`,
+    default 512), because the check works off a chars-per-token ESTIMATE
+    rather than a tokenizer and must have room to be wrong.
+
+**BEHAVIOUR ON OVERFLOW — ARGUED, not picked silently.** The three
+candidates were a spoken apology, a logged skip, and a clean stop.
+  - **A spoken apology every turn is the worst option.** Once the window is
+    exhausted the transcript only grows, so EVERY subsequent turn
+    overflows. In a twenty-turn meeting that is twenty identical
+    apologies — actively worse than the silence it replaces.
+  - **A purely silent skip is ambiguous, and ambiguous in a way that
+    matters specifically for THIS product.** DR-008's thesis is that
+    Jester's value is knowing when to stay SILENT. Silence is therefore a
+    MEANINGFUL output here, not an absence of one. Overloading it with "I
+    have broken" makes the meaningful signal unreadable: the room cannot
+    distinguish considered restraint from failure.
+  - **A clean stop is the defect being fixed**, not an option.
+  - **RULED: announce once, then be silent, and keep the run alive.** The
+    first overflow returns a short fixed spoken line ("I've reached the
+    limit of what I can keep track of, so I'll stop commenting from here.
+    Carry on without me."). Every subsequent overflow returns empty text
+    and produces no audio. C2 returns HTTP 200 with `status:
+    "context_exhausted"` and C5 branches on that field rather than on an
+    exception. The room gets exactly one unambiguous signal; capture keeps
+    running and the meeting is still recorded.
+
+**The "already announced" flag is process-level**, matching
+`prompt_builder`'s own process-level scope — one C2 process serves one
+meeting at D0. Deliberately not per-request: a flag that reset each turn
+would reproduce the twenty-apologies failure.
+
+**THIS IS NOT A TRUNCATION POLICY AND IS BUILT SO IT CANNOT DRIFT INTO
+ONE.** The overflow turn's transcript line is still appended — the
+transcript is the meeting's record, and dropping lines here would be
+truncation by the back door, which DR-013(b) reserves to the operator.
+What the guard refuses to do is CALL THE MODEL.
+`tests/test_overflow_guard.py::test_transcript_is_not_silently_trimmed`
+asserts this explicitly so a later change cannot quietly convert the guard
+into a policy.
+
+**A SECOND BACKSTOP, because the guard rests on an estimate.** After every
+generate call C2 compares Ollama's own `prompt_eval_count` against the
+estimated prompt size and logs `silent_truncation_detected` when the actual
+count falls below 85% of the estimate. If the estimator is ever wrong
+enough that Ollama truncates anyway, that is now visible in the logs;
+without it, nothing about the response would reveal it, since a truncated
+prompt returns HTTP 200 and reads as a normal answer.
+
+**PROVEN BY FORCING THE CONDITION, not by inspection.** Nine tests across
+two packages. `c2_reason/tests/test_overflow_guard.py` (5) drives the real
+FastAPI app through `TestClient` and asserts a 200 rather than a 500, the
+announce-once-then-silent sequence over six consecutive overflow turns, the
+guard firing below `num_ctx` rather than at it, and the no-trimming
+property. `c5_orchestrator/tests/test_overflow_survival.py` (4) drives the
+REAL `run_turn` against a stub transport — this is the test that matters,
+because the death happened in C5, not C2: it asserts the loop survives
+twenty consecutive overflow turns, that a silent overflow turn calls C4 not
+at all, that the first overflow DOES speak, and that a genuine 500 still
+propagates so the guard has not become a blanket swallow of C2 errors. The
+suite was MUTATION-CHECKED: restoring the pre-DR-039 `raise` made three of
+the five C2 tests fail, and the change was then reverted.
+
+This entry is an append; no prior entry above is edited, per the append-only rule for
+this file.
+
+### DR-040 — num_ctx RAISED 8192 -> 16384. THE CENTRAL MEASURED FINDING IS THAT DELTA PREFILL TRACKS ACTUAL CONTEXT OCCUPANCY, NOT THE num_ctx SETTING, SO A LARGER WINDOW COSTS ALMOST NOTHING UNTIL IT IS FILLED (2026-09-07)
+
+**Method.** `ops/ctx_sweep.py`, committed so the figures can be re-derived.
+Non-interactive, before spending the operator's spoken run. `num_ctx` at
+8192 / 16384 / 32768, four fills each, retrieval enabled with a real
+~709-token evidence block appended AFTER the transcript per DR-013(a).
+Model `gemma4-e4b-bakeoff:latest` blob digest
+`sha256-90ce98129eb3e8cc57e62433d500c97c624b1e3af1fcc85dd3b55ad7e0313e9f`,
+embeddings `nomic-embed-text:latest` blob digest
+`sha256-970aa74c0a90ef7482477cf803618e776e173c007bf957f635f1015bfcfef0e6`,
+live UMA carve 16 GiB, `num_predict` 40 (the pinned Bar B cap).
+
+**TWO PREFILL COSTS WERE MEASURED SEPARATELY, because conflating them
+would have produced a recommendation built on the wrong number.** COLD
+prefill (whole prompt from nothing) is paid once at session start and again
+on every cut under a chunked-truncation policy. DELTA prefill (cached
+prefix plus one new transcript line plus a fresh evidence block) is what
+every steady-state turn actually pays, and it is the number this
+recommendation rests on.
+
+**GATING CHECK RUN FIRST, because the whole sweep would otherwise have been
+fiction.** The Modelfile pins `PARAMETER num_ctx 8192`. Verified that a
+request-level `options.num_ctx` overrides it rather than being silently
+clamped: at 16384 a 15,720-token prompt evaluated in full, and `/api/ps`
+reported `context_length: 16384`. Also verified Ollama RELOADS the model
+when `num_ctx` changes (server log shows a fresh `llama_context: n_ctx =
+16384` load), so later sweep points are not run against a model still
+loaded at an earlier setting. The model's native trained context is 131072,
+so none of the three settings approaches a model limit.
+
+**MEASURED (reported against Ollama's own `prompt_eval_count`, not against
+nominal fill labels — the synthetic transcript sizing overshot its targets
+by roughly 24%, so the labels understate real occupancy and are not used):**
+
+| num_ctx | occupancy (tok) | cold prefill | DELTA prefill |
+|---|---|---|---|
+| 8192 | 2,485 | 3.688 s | **1.510 s** |
+| 8192 | 5,058 | 7.297 s | **1.603 s** |
+| 8192 | 7,641 | 11.284 s | **1.680 s** |
+| 16384 | 5,060 | 7.430 s | **1.565 s** |
+| 16384 | 10,222 | 15.624 s | **1.771 s** |
+| 16384 | 15,385 | 24.973 s | **1.962 s** |
+| 32768 | 10,223 | 15.768 s | **1.772 s** |
+| 32768 | 20,568 | 35.417 s | **2.121 s** |
+| 32768 | 31,174 | 59.957 s | **2.521 s** |
+
+**THE CENTRAL FINDING. Delta prefill is a function of ACTUAL OCCUPANCY, not
+of the `num_ctx` setting.** At ~5,060 tokens of context the delta prefill
+is 1.603 s under an 8192 window and 1.565 s under a 16384 window. At
+~10,222 tokens it is 1.771 s under 16384 and 1.772 s under 32768. The
+setting itself is free; only what is actually put in the window costs
+anything. This inverts the intuition the task carried in — that a larger
+window buys minutes "at the price of prefill time" — and it is the reason
+the recommendation below is comfortable rather than a close call.
+Confirmed independently on the live service path after the change: the
+smoke run at 16384 showed prefill 1.35–1.74 s at ~900–1,160 tokens
+occupancy, indistinguishable from thread 1.0.14's 1.48–1.98 s at 8192.
+
+**Cold prefill DOES degrade with length**, from ~674 tokens/s at 2.5k to
+~520 tokens/s at 31k — the super-linear attention cost, present but mild at
+these sizes. Its practical significance is not per-turn latency but the
+cost of a truncation CUT: a cut at a full 8192 window costs ~11 s of
+prefill, at a full 16384 ~25 s, and at a full 32768 ~60 s. That figure is
+carried into DR-041's assessment of option (b).
+
+**MEMORY IS NOT THE CONSTRAINT, verified rather than assumed.** ROCm
+compute buffer 221 MiB at 8192, 237 MiB at 16384, 269 MiB at 32768 — a
+48 MiB spread against a 16 GiB carve. The carve was NOT changed and no BIOS
+change is required, per this thread's own instruction.
+
+**THE MEETING-MINUTES CEILING, and an honest correction to the speech-rate
+input.** Usable transcript budget is `num_ctx` minus the 512-token guard
+margin, ~709 tokens of evidence and ~60 of preamble:
+
+| num_ctx | transcript budget | at 190 tok/min (assumed) | at 143 tok/min (measured floor) |
+|---|---|---|---|
+| 8192 | 6,911 | 36.4 min | 48.3 min |
+| 16384 | 15,103 | 79.5 min | 105.6 min |
+| 32768 | 31,487 | 165.7 min | 220.2 min |
+
+**The speech rate was derived from real logs rather than left as an
+assumption, and the derivation's limits are stated because they are
+severe.** Across the three recorded runs, 46 of 58 turns have a
+`capture_wait_start` to `endpoint_declared` span of exactly 0.0 s — C1's
+VAD frequently has audio already buffered when capture opens, so the
+available span is not a speech duration for those turns and the naive
+per-turn rates they produce (medians in the tens of thousands of
+tokens/minute) are artefacts, not data. Restricted to the 12 turns with a
+non-degenerate span, the median is **143 tokens/minute** with a range of
+82–196. That figure is still a FLOOR rather than an estimate, because the
+span also includes pre-speech waiting and end-of-utterance silence
+detection, and C1 logs no speech-onset event from which real speech
+duration could be recovered. **DR-036's assumed 190 tok/min is therefore
+RETAINED as the planning figure**, not because it is confirmed but because
+it sits above the measured floor and a higher rate yields a SHORTER, safer
+ceiling. It remains an assumption and is labelled as one. Making this
+measurable is carried to `BACKLOG.md`: C1 logging a speech-onset timestamp
+would settle it in one run.
+
+**RECOMMENDATION AND RULING: `num_ctx` 16384.** Reasoning:
+  - **It covers the actual use case; 8192 does not.** A board meeting runs
+    60–90 minutes. At the conservative 190 tok/min planning figure, 8192
+    gives 36 minutes — Jester goes silent less than halfway through. 16384
+    gives ~80 minutes, which covers a normal meeting.
+  - **The per-turn cost is near zero, measured.** Because delta prefill
+    tracks occupancy rather than setting, the cost at the START of a
+    meeting is identical to 8192's. Only at the far end does it reach
+    ~1.96 s against 8192's ~1.68 s — about +0.29 s, and only on the last
+    turns.
+  - **Kill-switch margin is preserved.** Projecting from thread 1.0.14's
+    measured 4.035 s median with 1.588 s of prefill, worst-case end-of-
+    meeting T_ttfa at 16384 is ~4.4 s against DR-017's 8 s bar. Stated as
+    an arithmetic expectation, not a measurement — Task 4's spoken run is
+    what settles it.
+  - **Why not 32768, which the occupancy finding might seem to argue
+    for.** It buys 166 minutes, well beyond the use case, and two costs do
+    NOT track occupancy favourably: the far-end delta prefill reaches
+    2.52 s, and more importantly a truncation cut at a full 32768 window
+    costs ~60 s of cold prefill against ~25 s at 16384. A 60-second silence
+    mid-meeting is not a recoverable event, and DR-041 keeps chunked
+    truncation as a live option. Choosing the smallest window that covers
+    the use case keeps that option viable.
+  - **The decision is cheap to reverse** — one environment variable,
+    `C2_NUM_CTX`, with 32768 already measured should meetings routinely run
+    longer than 80 minutes.
+
+**Honest statement of what is NOT established.** These are synthetic
+transcripts, not real meeting speech, and the sweep measures one model at
+one quantization on one box. The occupancy-not-setting finding is robust
+across three windows and two overlapping occupancies, but it is a
+measurement of this configuration, not a general property claimed of
+transformers.
+
+This entry is an append; no prior entry above is edited, per the append-only rule for
+this file.
+
+### DR-041 — CONTEXT-MANAGEMENT DESIGN FILED, NOT BUILT: FIVE OPTIONS ASSESSED, A RECOMMENDED ORDER OF WORK, AND THE ONE TENSION THAT HAS NO CLEAN ANSWER YET (2026-09-07)
+
+**Status: this entry FILES a position. Nothing in (b)-(e) is implemented
+this session, deliberately.** Its purpose is that the next thread inherits
+a considered position rather than an open question. DR-013(b) is not closed
+by this entry; it is made decidable.
+
+**What has changed since DR-013(b) left this open.** Two things, both from
+this thread: overflow no longer terminates the run (DR-039), so the
+question is no longer urgent-at-any-cost; and the window is now 16384 with
+a measured ~80-minute ceiling (DR-040), which moves the problem from
+"happens in every meeting" to "happens in long ones."
+
+**(a) RAISE num_ctx — DONE, measured, and cheaper than expected.** DR-040.
+Delta prefill tracks occupancy rather than the setting, so the window was
+doubled for ~+0.29 s at the far end of a meeting and +16 MiB. 32768 is
+measured and available (166 min, +0.84 s far-end) behind one environment
+variable. **Assessment: this is the cheapest lever and it has now been
+pulled once. It does not scale indefinitely** — the far-end prefill cost
+and the truncation-cut cost both grow with the window — but it bought the
+room in which every other option below can be designed unhurried.
+
+**(b) CHUNKED TRUNCATION — drop from the front in large infrequent chunks.**
+Knowingly violates DR-013(a)'s cached prefix at each cut, by design: the
+trade is one slow turn per cut rather than permanent slowness.
+**Now quantified by DR-040, which changes how attractive it looks:** a cut
+at a full window costs a full cold prefill — ~11 s at 8192, **~25 s at
+16384**, ~60 s at 32768. A 25-second silence mid-meeting is a serious
+event, not a hiccup, and it lands squarely past DR-017's 8 s kill switch
+for that turn. **Assessment: viable as a HARD FALLBACK that fires rarely,
+not as the primary mechanism. Its cost is now a measured number rather
+than a worry, and that number argues against ever letting the window grow
+much beyond 16384 while this remains the fallback.**
+
+**(c) ROLLING SUMMARISATION — periodically compress older transcript into a
+summary that becomes the new stable prefix.** Costs a second inference
+call. **The decisive objection is not cost, it is that it is lossy in
+exactly the dimension the product sells.** DR-008 makes prior minutes and
+resolutions the highest-value Tier 1 material precisely because SPECIFICS
+matter — "the board resolved the opposite of this in March" is the thing no
+general-purpose tool reproduces. A summary that compresses a ten-minute
+exchange to "we discussed the vendor contract" has discarded the detail
+that would have triggered the interjection. **Assessment: on its own this
+trades away the product's differentiator to save memory. Not acceptable
+alone.**
+
+**(d) HYBRID — recent turns verbatim, older ones summarised, AND the full
+transcript indexed into the corpus as it accumulates so specifics stay
+RETRIEVABLE after they leave the window.** This is the only option that
+addresses (c)'s loss rather than accepting it: the detail leaves the
+context window but does not leave the SYSTEM, because retrieval can pull it
+back. It also composes naturally with what already exists — DR-035's
+question-answering retrieval path would simply have more to search.
+**THE TENSION, stated explicitly because it has no clean answer yet:** this
+requires writing live meeting transcript into a persistent Chroma store,
+and DR-030 rules isolation — the box purged between sessions, session
+material contained — as the data-handling posture. DR-034 and thread
+1.0.13 already recorded that the store is a standing exception to that
+purge claim with no purge path built. Option (d) makes that exception
+substantially worse: not ingested documents the client supplied, but a
+verbatim recording of what people said in a private meeting, persisted by
+default. **This is not an engineering trade-off to optimise; it is a
+data-handling decision that needs the operator, and probably needs DR-030's
+purge mechanism to exist BEFORE (d) is built rather than after.**
+Assessment: the most promising option technically, gated on a governance
+decision that is not this thread's to make.
+
+**(e) OPERATOR PROPOSAL — Jester detects a topic boundary and interjects to
+request a short break** ("can we take a short break while I arrange my
+notes before we continue?"), using the pause to summarise. Recorded with
+its reasoning: it is a genuinely good idea about the SOCIAL layer, and it
+is the difference between a tool that visibly stalls and one that appears
+to manage itself.
+**Recorded as the operator framed it, and the framing is the important
+part: this is the graceful PACKAGING of (c) or (d), not a substitute for
+either.** The break buys social permission to be slow; it does not buy the
+capability to compress. Whatever happens during the pause is still (c) or
+still (d), with all of (c)'s lossiness or (d)'s governance tension intact.
+Its three known limitations, recorded:
+  - It depends on C3 topic-boundary detection, which does not exist and is
+    the thinnest-specified part of the concept per `SEED_jester-1.0.md`
+    §8 q1.
+  - There may be no topic boundary before the ceiling — a heated exchange
+    is exactly when nobody pauses, and also exactly when the transcript
+    fills fastest. **A hard fallback is therefore required regardless of
+    (e)**, which is (b)'s standing justification.
+  - It has a social cost if it fires often, which argues for making the
+    window long enough that it rarely does — i.e. (e) is an argument FOR
+    (a), not an alternative to it.
+
+**RECOMMENDED ORDER OF WORK, with reasoning.**
+  1. **(a) is done. Re-measure at 16384 on the spoken run** (this thread's
+     Task 4) before treating the ceiling as settled.
+  2. **Instrument before designing.** Nothing above should be built until
+     a real meeting's actual token accumulation is known. DR-040's ceiling
+     rests on a 190 tok/min ASSUMPTION whose measured floor is 143 and
+     whose true value is unrecoverable from current logs. **Adding a
+     speech-onset timestamp to C1 is a one-line change that converts the
+     central input of this entire design from assumption to measurement.**
+     It is first because it is cheapest and because every option's value
+     depends on how fast the window actually fills.
+  3. **(b) as a hard fallback, narrowly scoped.** It is the only option
+     that requires no new capability and no governance decision, and (e)'s
+     second limitation proves something of its kind is needed no matter
+     what else is built. Build it to fire rarely and log loudly, with the
+     ~25 s cut cost accepted and visible.
+  4. **DR-030's purge mechanism.** A prerequisite for (d), and already
+     overdue on its own terms for the existing store.
+  5. **(d), then (e) as its packaging** — in that order, because (e)
+     without (d) is a polite pause during which nothing useful happens.
+  6. **(c) alone: not recommended at any point.** It is only acceptable as
+     the compression step inside (d), where retrieval backstops its loss.
+
+**What would change this order.** If step 2's measurement shows meetings
+fill the window far faster than 190 tok/min, (a) at 32768 becomes urgent
+and (b)'s cut cost rises to ~60 s, which would argue for accelerating (d).
+If it shows meetings rarely approach the ceiling at 16384, most of this
+becomes theoretical and only (b) need ever be built.
+
+This entry is an append; no prior entry above is edited, per the append-only rule for
+this file.

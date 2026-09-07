@@ -2,6 +2,56 @@
 
 ## Open
 
+- **C1 MUST LOG A SPEECH-ONSET TIMESTAMP. One line of code; it converts the
+  central input of the whole context-management design from assumption to
+  measurement (thread 1.0.15, DR-040/DR-041).** DR-036's meeting-ceiling
+  estimate rests on an ASSUMED 190 tokens/minute. This thread tried to
+  derive it from real logs and could not: 46 of 58 recorded turns have a
+  `capture_wait_start` to `endpoint_declared` span of exactly 0.0 s because
+  C1's VAD often has audio already buffered, and the 12 usable turns give a
+  median of 143 tok/min which is still only a FLOOR — the span also
+  includes pre-speech waiting and end-silence detection. With a
+  speech-onset event, one ordinary run settles it. **DR-041 puts this
+  FIRST in the recommended order of work**, ahead of building any
+  truncation mechanism, because every option's value depends on how fast
+  the window actually fills.
+
+- **Context-management design is FILED but NOT BUILT (thread 1.0.15,
+  DR-041).** Five options assessed with a recommended order: (a) raise
+  num_ctx — done, 8192 -> 16384; (b) chunked truncation as a hard fallback,
+  now quantified at ~25 s per cut at 16384; (c) rolling summarisation —
+  **not recommended alone at any point**, it discards exactly the
+  specifics DR-008 makes the product's differentiator; (d) hybrid with the
+  transcript indexed into the corpus — most promising, but **gated on a
+  governance decision, not an engineering one**; (e) the operator's
+  ask-for-a-break proposal — good, and correctly framed as the social
+  PACKAGING of (c)/(d) rather than a substitute for them. Nothing in
+  (b)-(e) is implemented.
+
+- **DR-030's purge mechanism is now a PREREQUISITE, not just a gap.** It
+  was already overdue for the existing Chroma store. DR-041's option (d)
+  would write verbatim live meeting transcript into that store — not
+  client-supplied documents but a recording of what people said in a
+  private meeting, persisted by default. **The purge path should exist
+  before (d) is built, not after.**
+
+- **WHAT C3 MUST NOW CARRY, added by this thread (DR-041).** (1) C3 needs
+  TOPIC-BOUNDARY DETECTION for option (e)'s break request — this does not
+  exist and is the thinnest-specified part of the concept per SEED §8 q1.
+  (2) C3 must not assume a boundary will arrive: a heated exchange is
+  exactly when nobody pauses AND when the transcript fills fastest, so a
+  hard fallback is required regardless of (e). (3) C3's own latency budget
+  now sits on top of a per-turn C2 cost that grows with meeting length —
+  ~1.57 s prefill early, ~1.96 s at the far end of a 16384 window.
+
+- **Ollama SILENTLY TRUNCATES over-long prompts and returns HTTP 200
+  (thread 1.0.15, DR-039).** Verified from the server log: `truncating
+  input prompt limit=4099 prompt=15720 keep=5`, cutting to ~num_ctx/2 and
+  keeping ~5 leading tokens plus a tail. There is no signal in the API
+  response. C2 now guards below num_ctx and logs
+  `silent_truncation_detected` as a backstop, but **any future component
+  that calls Ollama directly inherits this hazard and must handle it.**
+
 - **Bar B re-anchored WITH retrieval: 4.035 s median / 4.763 s p90, kill
   switch did not fire (thread 1.0.14, DR-038).** Three items fall out of
   the run and are open: (1) **DR-028's clean baseline re-run still has not
