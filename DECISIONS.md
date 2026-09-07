@@ -1746,3 +1746,108 @@ is visible as a surprise.
 
 This entry is an append; no prior entry above is edited, per the append-only rule for
 this file.
+
+## 2026-09-07 — Thread 1.0.14 (continued): Bar B re-measured with retrieval wired in
+
+### DR-038 — BAR B WITH RETRIEVAL: T_ttfa MEDIAN 4.035 s / p90 4.763 s AT THE LIVE 16 GiB CARVE. DR-017'S KILL SWITCH DID NOT FIRE. RETRIEVAL COSTS ~1.19 s OF WHICH THE VECTOR SEARCH IS 0.030 s; THE p90 COMPARISON AGAINST D0 IS REPORTED BUT NOT RELIED ON (2026-09-07)
+
+**Run identity, recorded with the figure per DR-020's standing convention.**
+Twenty spoken turns over the bonded headset on HFP/mSBC, driven by the
+operator in their own SSH terminal (not from chat), logs in
+`logs/run_20260907T140308Z`. Live UMA carve 17,179,869,184 bytes = 16.00
+GiB, read from sysfs by the harness at compute time, not assumed. Kernel
+`7.0.0-31-generic`. Reasoning model `gemma4-e4b-bakeoff:latest`, blob digest
+`sha256-90ce98129eb3e8cc57e62433d500c97c624b1e3af1fcc85dd3b55ad7e0313e9f`.
+Embedding model `nomic-embed-text:latest`, blob digest
+`sha256-970aa74c0a90ef7482477cf803618e776e173c007bf957f635f1015bfcfef0e6`.
+Both digests read from the run's own structured logs, which C2 emits per
+turn, rather than from the environment afterwards. 20 of 20 turns produced
+complete stage logs; none was excluded.
+
+**THE FIGURE. T_ttfa median 4.035 s, p90 4.763 s.** Decomposition (medians):
+ASR tail 0.816 s, **retrieval 0.030 s**, C2 prefill 1.588 s, C2 generate
+0.846 s, TTS 0.790 s. Partition integrity `partition_gap_median_s` 0.0068 s
+and `partition_gap_max_s` 0.0202 s — the re-anchored partition (DR-037)
+adds up, so the retrieval stage is neither double-counted nor hidden.
+Post-T_ttfa playout 3.198 s, reported separately and never inside the
+partition. Retrieval volume: 6 chunks and 710 estimated evidence tokens per
+turn at the median, against Ollama-reported prompts of 1,020 tokens.
+
+**DR-017'S KILL SWITCH DID NOT FIRE.** The bar is median > 8 s; the measured
+median is 4.035 s. Recorded as a pass on that specific bar and nothing more
+— no other Bar B criterion is claimed as met by this entry.
+
+**AGAINST D0'S ANCHOR, stated plainly as this thread was instructed to.**
+D0's anchor is 3.076 s median / 4.959 s p90. Median moves 3.076 -> 4.035,
+i.e. **retrieval costs +0.959 s, a 31% increase in median first-audio
+latency.** That is the headline cost and it is real.
+
+**The p90 comparison is reported and then explicitly NOT relied on.** p90
+moves 4.959 -> 4.763, i.e. this run's p90 is 0.196 s BETTER than the
+no-retrieval anchor. It would be convenient to present that as retrieval
+being free at the tail and it is not offered that way. Three reasons for
+distrusting it, recorded rather than glossed: (1) DR-028 held the anchor
+run's figure PROVISIONAL pending a clean re-run, and that clean re-run has
+still not happened, so the p90 being compared against is itself unsettled;
+(2) re-decomposing `logs/run_20260907T095156Z` with this session's harness
+yields 2.705 s / 4.987 s rather than 3.076 s / 4.959 s, and this session
+could not determine from the logs alone which run the anchor came from —
+the discrepancy is flagged, not silently reconciled, and the instructed
+anchor was used for the comparison above; (3) p90 over 20 samples is the
+second-largest value and is dominated by whichever single turn happened to
+be slowest. **The median comparison is the one to carry forward. The p90
+comparison should be re-made after DR-028's clean baseline re-run exists.**
+
+**WHERE THE COST ACTUALLY IS, now measured on a real spoken run rather than
+a smoke test.** Regressing per-turn C2 prefill on per-turn evidence tokens
+across the 20 turns: **r = 0.965**, slope **1.634 ms per evidence token**
+(~612 evidence tokens/s), intercept 0.388 s. So the median 710 evidence
+tokens cost **~1.16 s of prefill**, and the retrieval stage proper — embed
+plus Chroma query — costs **0.030 s**. Total retrieval cost ~1.19 s, of
+which the vector search is **2.5%**. This confirms DR-037's smoke-test
+finding on live spoken data and at higher confidence: anyone tuning the
+vector search here would be tuning 2.5% of the problem, and the lever that
+matters is the number of evidence tokens appended.
+
+**AN ACCIDENTAL IN-RUN CONTROL, worth more than a deliberate one.** Turn 5
+transcribed to ZERO characters (the operator's speech was not captured;
+turn_id `9fe09dbf-a3fa-4feb-ae87-71ca653fd32f`). C2's empty-query guard
+behaved exactly as designed — retrieval returned nothing, 0 chunks, 0
+evidence tokens, retrieval stage 0.0000 s — and that turn's prefill was
+**0.297 s against a 1.588 s median for the retrieval turns.** That single
+turn is an unplanned zero-evidence control inside the same run, same model
+load, same carve, and it sits close to the 0.388 s regression intercept
+derived independently from the other nineteen. Two independent estimates of
+"prefill without evidence" agreeing is stronger evidence for the ~1.2 s
+retrieval cost than either alone.
+
+**TWO OBSERVATIONS RECORDED, NEITHER FIXED HERE.**
+  - **DR-028's degenerate-repetition behaviour recurred, and grounding did
+    not prevent it.** Twelve of twenty replies opened "It sounds like",
+    and seven contained "circling back"/"circle back". DR-028 explained
+    this as benign D0 behaviour under a repetitive Bar B transcript rather
+    than a defect; that explanation is not overturned here, but it is now
+    observed WITH corpus evidence in the prompt, which is new information:
+    retrieved grounding did not pull the model out of the pattern. Carried
+    to `BACKLOG.md`. It does not affect the latency figure, which is what
+    this entry measures.
+  - **A zero-character transcript still consumed a full turn.** C1 returned
+    an empty transcript and C5 drove the whole C2/C4/playout path anyway,
+    so Jester spoke ("It sounds like there's a spirited debate happening.")
+    in response to silence. Harmless at D0 and useful here as a control,
+    but a real deployment must not answer nothing. Carried to `BACKLOG.md`.
+
+**CLEAN ON EVERY OTHER AXIS SWEPT.** Zero preamble leaks (DR-027/DR-028's
+mitigation held for twenty turns with evidence appended), zero prompt
+overflows (DR-036's arithmetic said twenty turns was nowhere near the 8192
+ceiling and it was), `retrieval_enabled` true on every turn (so this is not
+a baseline run mislabelled), Tier 2 consulted on 19 of 20 turns and
+returning nothing every time because 2a/2b are empty, and **zero bracketed
+citation markers or source filenames reached the spoken output** — the risk
+this thread flagged against `c4_speech/text_filter.py`, which strips
+emoji/stage-directions/control-markers but NOT `[source #N]` brackets, did
+not materialise this run. That is one clean run, not a fix; the gap in
+`text_filter` is real and remains carried in `BACKLOG.md`.
+
+This entry is an append; no prior entry above is edited, per the append-only rule for
+this file.

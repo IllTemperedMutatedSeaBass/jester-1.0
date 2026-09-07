@@ -1942,3 +1942,104 @@ in this entry and will be filed as their own DECISIONS.md entry with a
 further RELAY.md entry on the operator's return. Nothing in this thread
 should be read as having measured end-to-end first-audio latency with
 retrieval.
+
+---
+
+## STOP REPORT — Thread 1.0.14 (continued): Task 5, Bar B measured with retrieval — 2026-09-07
+
+**Task 5 is now CLOSED.** The twenty-turn spoken run was driven by the
+operator in their own SSH terminal, not from chat. Logs in
+`logs/run_20260907T140308Z`. 20 of 20 turns produced complete stage logs;
+none excluded.
+
+**THE FIGURE, with its run identity, per DR-020's convention.** T_ttfa
+**median 4.035 s, p90 4.763 s**, at a live UMA carve of 17,179,869,184
+bytes (16.00 GiB) read from sysfs by the harness at compute time, kernel
+`7.0.0-31-generic`, reasoning model `gemma4-e4b-bakeoff:latest` blob digest
+`sha256-90ce98129eb3e8cc57e62433d500c97c624b1e3af1fcc85dd3b55ad7e0313e9f`,
+embedding model `nomic-embed-text:latest` blob digest
+`sha256-970aa74c0a90ef7482477cf803618e776e173c007bf957f635f1015bfcfef0e6`.
+Both digests were read from the run's own per-turn structured logs, not
+from the environment afterwards.
+
+**Decomposition with the retrieval stage broken out (medians):** ASR tail
+0.816 s, **retrieval 0.030 s**, C2 prefill 1.588 s, C2 generate 0.846 s,
+TTS 0.790 s. `partition_gap_median_s` 0.0068 s, `partition_gap_max_s`
+0.0202 s — the DR-037 re-anchoring holds on live data, so retrieval is
+neither double-counted nor hidden inside `c2_prefill_s`.
+
+**DR-017's kill switch did NOT fire** (bar: median > 8 s; measured 4.035 s).
+Recorded as a pass on that bar and nothing else.
+
+**WHAT RETRIEVAL COSTS, stated plainly as instructed.** Median first-audio
+latency moves from D0's anchor of 3.076 s to 4.035 s: **retrieval costs
++0.959 s, a 31% increase.** Of the ~1.19 s attributable to retrieval,
+**the vector search is 0.030 s — 2.5%** — and the rest is prefilling the
+appended evidence. Regression across the twenty turns: prefill on evidence
+tokens gives r = 0.965, slope 1.634 ms per evidence token, intercept
+0.388 s.
+
+**An accidental in-run control strengthens that number.** Turn 5
+transcribed to zero characters (turn_id
+`9fe09dbf-a3fa-4feb-ae87-71ca653fd32f`); C2's empty-query guard returned no
+chunks and no evidence, and that turn's prefill was **0.297 s against the
+1.588 s median of the retrieval turns** — an unplanned zero-evidence
+control in the same run, same model load, same carve, agreeing closely with
+the 0.388 s regression intercept derived independently from the other
+nineteen turns.
+
+**A comparison reported and then deliberately NOT relied on.** p90 moved
+4.959 -> 4.763, i.e. better than the no-retrieval anchor. That is not
+offered as evidence retrieval is free at the tail. DR-028 held the anchor
+run provisional pending a clean re-run that still has not happened;
+re-decomposing `logs/run_20260907T095156Z` with this session's harness
+gives 2.705 s / 4.987 s rather than the recorded 3.076 s / 4.959 s, and
+this session could not tell from the logs which run the anchor came from;
+and p90 over 20 samples is dominated by a single turn. The instructed
+anchor was used for the median comparison and the discrepancy is flagged
+rather than reconciled in my own favour. The median comparison is the one
+to carry forward.
+
+**Anomaly sweep — clean on every axis checked but two.** Zero preamble
+leaks across twenty turns with evidence appended (DR-027/DR-028's
+mitigation held), zero prompt overflows (DR-036's arithmetic was right that
+twenty turns sits far from the 8192 ceiling), `retrieval_enabled` true on
+every turn so this is not a mislabelled baseline, Tier 2 consulted on 19 of
+20 turns and returning nothing every time because 2a/2b are empty, and
+**zero bracketed citation markers or source filenames reached the spoken
+output** — the `c4_speech/text_filter.py` gap this thread flagged before
+the run did not materialise. That is one clean run, not a fix, and the gap
+stays in `BACKLOG.md`. The two findings: DR-028's degenerate repetition
+recurred (12 of 20 replies opened "It sounds like", 7 contained "circling
+back") and did so WITH corpus grounding present, which is new information
+about a known behaviour; and a zero-character transcript still consumed a
+full turn, so Jester spoke in response to silence. Both recorded in DR-038
+and carried to `BACKLOG.md`; neither is fixed here, and neither affects the
+latency figure.
+
+**Records.** `DECISIONS.md` DR-038 filed. `BACKLOG.md` updated with the
+three open items falling out of the run. No `jesterai` write was required.
+
+**Untouched-repo proof (close of thread).** `jester-2.1` HEAD, read-only,
+c41dc92fd121dafaae39a50d68e7aa91e73f9756 before and after, `status
+--porcelain` empty; its files were not read at all this thread.
+`jesterai` HEAD 605de619019651f53a818b83c848036a91bd72e8 throughout,
+`status --porcelain` empty. `HeathenS_Talkings`: stated absence — no such
+directory exists on this box. `/mnt/jester_in` was not written.
+
+### SHAs stated in this report (full 40 characters, in prose)
+
+This thread's earlier work commit, 1c03628fbd0c1740ffe673e360e7e5b737227040,
+and its proof-of-push addendum commit,
+089d9ec3f3fdd9e63e31350f138733f423f11c59, are both on origin/main, each
+verified after an independent `git fetch origin` on the `origin/main` ref
+and cross-checked with `git ls-remote origin refs/heads/main`. `jester-2.1`
+HEAD, read-only, was c41dc92fd121dafaae39a50d68e7aa91e73f9756 before and
+after. `jesterai` HEAD was 605de619019651f53a818b83c848036a91bd72e8
+throughout and was not written.
+
+### Proof-of-push
+
+Pending for this Task 5 entry: recorded in an addendum below once this
+entry is committed, pushed, and its hash independently re-verified against
+`origin/main` after a fresh `git fetch origin`.

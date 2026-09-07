@@ -2,6 +2,42 @@
 
 ## Open
 
+- **Bar B re-anchored WITH retrieval: 4.035 s median / 4.763 s p90, kill
+  switch did not fire (thread 1.0.14, DR-038).** Three items fall out of
+  the run and are open: (1) **DR-028's clean baseline re-run still has not
+  happened**, so the p90 comparison against D0 is unsettled — this thread
+  reported p90 improving (4.959 -> 4.763) and explicitly declined to rely
+  on it; re-make that comparison once a settled baseline exists, and
+  resolve why re-decomposing `logs/run_20260907T095156Z` gives 2.705/4.987
+  rather than the recorded 3.076/4.959. (2) **`c4_speech/text_filter.py`
+  does not strip bracketed citations.** It strips emoji, asterisked stage
+  directions, parenthetical narration and Gemma control markers, but a
+  leaked `[DHI-Group_Org-Chart.png #3]` or `-- Company record --` label
+  would be voiced by Kokoro verbatim. Zero leaks occurred across the
+  twenty-turn run, which is one clean run and not a fix; the gap is real
+  and grows more likely as evidence grows. (3) **A zero-character
+  transcript still consumes a full turn** — C1 returned an empty
+  transcript on turn 5 and C5 drove C2/C4/playout anyway, so Jester spoke
+  in response to silence. Harmless at D0 (it served as a useful
+  zero-evidence control) but a real deployment must not answer nothing.
+
+- **DR-028's degenerate repetition recurred WITH retrieval grounding
+  present (thread 1.0.14, DR-038).** Twelve of twenty replies opened "It
+  sounds like"; seven contained "circling back". DR-028's reading of this
+  as benign D0 behaviour under a repetitive Bar B transcript is not
+  overturned, but it is now observed with real corpus evidence in the
+  prompt — grounding did not pull the model out of the pattern. This is new
+  information about a known behaviour and matters for C3, where a
+  formulaic interjection is a product problem rather than a cosmetic one.
+
+- **The retrieval-cost lever is evidence TOKEN COUNT, not vector-search
+  speed (thread 1.0.14, DR-037/DR-038).** Measured on the live spoken run:
+  prefill regresses on evidence tokens with r=0.965 at 1.634 ms/token,
+  while embed+query costs 0.030 s — 2.5% of the ~1.19 s total. Any future
+  latency work on retrieval should target how many tokens are appended
+  (`C2_RETRIEVAL_TOP_K`, chunk size, re-ranking to fewer chunks), not the
+  vector store. Recorded so nobody optimises Chroma expecting a win.
+
 - **D1 retrieval is wired into C2 and measured; C3 trigger logic is now the
   next build (thread 1.0.14, DR-035/DR-036/DR-037).** C2 answers questions
   from the corpus over the headset: `retrieval.py` implements DR-032's
