@@ -1329,3 +1329,12 @@ returned nothing again — still absent, still nothing to touch.
 Pending: recorded in an addendum immediately below, after this entry is
 committed, pushed, and its hash independently re-verified against
 `origin/main`.
+
+### Proof-of-push addendum (this continuation's own commit)
+
+Commit 0fd85ad3390c677c486c4b3b96e35a61dbef0656 is on origin/main. This
+hash was read from `origin` after an independent `git fetch origin`,
+checking the `origin/main` ref, following the `git push origin main` that
+landed this continuation's STOP report (and the DR-028 commit before it,
+a99ce44550911f01778186c1d69a02f8ddc268fc, also confirmed against
+origin/main at the time).
