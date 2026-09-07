@@ -2,6 +2,38 @@
 
 ## Open
 
+- **C2's output carries emoji and markdown stage directions (e.g. ✨, 🎭,
+  `*Giggles softly*`) that Kokoro does not drop — it voices them,
+  materially inflating synthesis time and audible duration (measured
+  thread 1.0.10, DR-026: plain text 1.899 s vs. the same text plus a
+  stage direction 3.883 s, plus a single emoji 2.880 s). Because both
+  C2's full token generation and C4's full TTS synthesis complete before
+  `playout_start`, this output distorts every Bar B T_ttfa figure
+  measured against the current system prompt, including thread 1.0.10's
+  20-turn run. Not fixed in thread 1.0.10 on purpose: changing C2's
+  system prompt mid-thread would have voided that run's own figure. Next
+  session that touches C2's system prompt should suppress emoji/stage
+  directions for the voice-only channel, then re-run Bar B once changed
+  (a new figure, not a patch to the existing one).
+
+- **Interactive spoken Bar B runs are driven from the operator's own
+  terminal, never relayed through chat (thread 1.0.10).** An earlier
+  attempt (this same thread, stalled) tried routing "SPEAK NOW" turn
+  prompts through a background monitor posting into chat. Root cause of
+  that stall was separate (the prompt printed to `sys.stderr`, which
+  `run_d0.sh` redirects to a log file, so it never reached any terminal —
+  fixed in commit a641163) — but the chat-relay approach itself is also
+  wrong on its own terms and should not be retried even once printing is
+  fixed: chat is turn-based, a relay adds seconds of latency to every
+  turn, and a T_ttfa measured on turns where the human was waiting on a
+  chat message would not be the figure DR-017 asks for (real spoken
+  latency, not chat-relay latency). Any future interactive/spoken
+  harness run must be started by the operator directly in their own SSH
+  terminal against the restructured foreground harness (`ops/run_d0.sh`,
+  prompts on stdout with `flush=True`); a Claude Code session's role is
+  to verify plumbing non-interactively first (`C1_CAPTURE_WAV`) and then
+  hand off the exact command, not to drive or relay the live run itself.
+
 - **Walking skeleton code is written (thread 1.0.6): C1 → C5 → C2 → C4,
   C3 stubbed and NOT wired.** Bar A (DR-017) is NOT claimed as passed —
   it is proven by running the loop, not by writing it. See "Run Bar B

@@ -537,3 +537,119 @@ was not touched.
 
 This entry is an append; no prior entry above is edited, per the append-only rule for
 this file.
+
+### DR-026 — BAR B RE-ANCHORED AT LIVE 16 GiB CARVE; CARVE-VS-GTT RESIDENCY FAVOURS "CARVE WAS BINDING"; TWO C2-OUTPUT ANOMALIES RECORDED (2026-09-07)
+
+**Configuration this figure is anchored to.** Live UMA carve
+`/sys/class/drm/card1/device/mem_info_vram_total` → `17179869184` bytes =
+**16.0 GiB**, matching `box/HARDWARE.md` §2 for the first time since
+DR-021 (see `jesterai/DECISIONS.md` 2026-09-07 entry). Kernel
+`7.0.0-31-generic`. Model unchanged, per DR-020's pin:
+`gemma4-e4b-bakeoff:latest`, blob digest
+`sha256-90ce98129eb3e8cc57e62433d500c97c624b1e3af1fcc85dd3b55ad7e0313e9f`,
+confirmed both from `ollama show --modelfile` and from the actually-running
+`llama-server` process's `--model` argument. Headset on `headset-head-unit`
+(HFP), codec `msbc`, confirmed via `ops/ensure_hfp.sh` at launch (see the
+harness-restructuring commit this same thread, a641163, for why that
+verification exists and what it found: the profile does not survive idle
+periods and must be re-asserted before every run).
+
+**Bar B figure (20/20 turns, operator-run, spoken, via
+`ops/run_d0.sh --turns 20` with `C5_TRANSCRIBE_TIMEOUT_S=300`).** Computed
+by `c5_orchestrator.bar_b_harness` against `logs/{c1,c2,c4,c5}.jsonl`:
+
+- **T_ttfa median: 3.076 s. p90: 4.959 s.** Kill switch (median > 8 s): NOT
+  fired.
+- Per-stage medians: ASR tail 0.757 s · C2 prefill 0.284 s · C2 generate
+  0.975 s · TTS 0.916 s · playout 3.906 s (playout is not part of T_ttfa,
+  which is measured to `playout_start`, not `playout_done`).
+- 40-token cap: `max_tokens_cap=40` on every turn per DR-013/DR-024's
+  pinned generation config. One turn (turn 18, `eval_count=40`) hit the cap
+  exactly — its reply was truncated mid-generation. `eval_count` ranged
+  8–40 across the 20 turns (median ~18), so turn 18 is the only turn where
+  the cap itself, not natural sentence length, ended generation.
+
+**Comparison against 1.0.9's 4.28 s median / 5.84 s p90 at a 2 GiB carve:**
+median improved by ~1.2 s (28%), p90 by ~0.9 s (15%). This is directionally
+consistent with "the carve was binding at 2 GiB" rather than "ROCm was
+already drawing on GTT and the carve was never the constraint" — but see
+the residency evidence below before weighting this conclusion; the T_ttfa
+comparison alone, across a single pair of runs with different utterances,
+is suggestive, not proof.
+
+**Carve-vs-GTT residency, with the model loaded (method: sysfs, not
+rocm-smi — no `rocm-smi`/`rocminfo`/`amd-smi` binary exists on this box,
+confirmed by `which` and a filesystem search; this repeats
+`box/HARDWARE.md` §3's standing finding).**
+`/sys/class/drm/card1/device/mem_info_vram_used` → `4575764480` bytes ≈
+**4.26 GiB** resident in the dedicated carve.
+`/sys/class/drm/card1/device/mem_info_gtt_used` → `52367360` bytes ≈
+**0.049 GiB (~50 MiB)** in GTT. `ollama ps` at the same moment: two models
+resident, `jester-gen:latest` (same blob digest as
+`gemma4-e4b-bakeoff:latest` — confirmed via `ollama list`'s shared model ID
+`9f626629a870`) and `nomic-embed-text:latest`, both reported "100% GPU."
+
+**Reading, and how strongly it's held.** At 16 GiB, essentially the entire
+model footprint sits in the dedicated carve; GTT usage (~50 MiB) is
+negligible and not plausibly where model weights live. At a 2 GiB carve,
+the same model (whose resident footprint here is ~4.26 GiB, larger than
+2 GiB outright) could not have fit in dedicated VRAM alone and must have
+drawn on GTT/shared system RAM to some degree — consistent with DR-021's
+own caveat that a small VRAM BAR does not mean a small "compute total."
+Taken together with the observed T_ttfa improvement, this **favours "the
+carve was binding at 2 GiB"** over "ROCm was already using GTT and the
+carve was never the constraint" — moderately strongly, on the logic that a
+mechanism (spillover to slower shared memory) is directly evidenced by the
+residency figures and points the same direction as the outcome (faster
+T_ttfa). It is not proof: this is one carve-change event, one pair of Bar B
+runs with different spoken content and turn counts of complete data, and no
+residency figure was captured live at the 2 GiB carve itself (thread 1.0.9
+did not measure GTT/VRAM split) to compare directly against this thread's
+16 GiB figures. A future measurement at an intermediate carve (matching
+DR-025's now-confirmed 512M–24G ladder) would be a stronger test than
+another run at either endpoint.
+
+**Anomaly 1 — turn 9's leaked `<end_of_turn>` marker (DR-024).** The
+operator reported turn 9's synthesized text ended with a literal
+`<end_of_turn>` string — DR-024's hand-rendered Gemma turn markers are
+appended as a fixed suffix on the prompt side (`c2_reason.prompt`), but
+nothing on the response side strips a stop-token string the model itself
+emits as literal output text when `/api/generate` with `raw: true` doesn't
+suppress it as a stop sequence. Investigated against the logs: turn 9's
+`eval_count` was 20 tokens (run range: 8–40, median ~18) and its
+`c2_generate_s` was 1.060 s, both unremarkable against the rest of the run
+— not the extreme value (that's turn 18's cap-hit at 40 tokens/1.754 s).
+Turn 9's own T_ttfa (2.885 s) is *below* the run's median (3.076 s), not an
+outlier. **Verdict: RETAIN turn 9 in the figure, anomaly noted, not
+excluded.** The leaked marker cost a handful of tokens against a run where
+token counts already range 8–40 for other reasons (varying reply length);
+it is not visibly distorting this turn's contribution to the aggregate,
+and dropping a turn from n=20 without a measurable effect to justify it
+would be the less honest choice. Filed against DR-024: the raw-generate
+path's stop-sequence handling for the literal `<end_of_turn>` string is
+unresolved and should be addressed (add it as an explicit Ollama `stop`
+sequence) before it appears in user-facing output rather than only in a
+measurement run.
+
+**Anomaly 2 — emoji and stage directions in C2's output, and Kokoro's
+handling of them.** Investigated directly (not inferred): calling
+`KokoroEngine.synthesize()` with matched test strings shows Kokoro does
+**not** silently drop emoji or asterisk-delimited stage directions — it
+voices them, materially inflating output audio duration. Measured:
+"Sure, happy to help with that today." → 1.899 s. Same text plus
+`*Giggles softly*` → 3.883 s (+104%). Plus a single `✨` → 2.880 s (+52%).
+Plus `🎭` → 2.987 s (+57%). Because both C2's full generation (all tokens,
+including any emoji/stage-direction tokens) and C4's full TTS synthesis
+complete *before* `playout_start`, this is not a cosmetic issue confined to
+audible playback — it sits inside the T_ttfa critical path on both the
+token-count side (C2 must decode the extra tokens before returning text)
+and the synthesis-time side (Kokoro must process the extra characters
+before audio is ready). The measured T_ttfa this run is real, not
+fabricated, but it is not the T_ttfa a system prompt that suppressed
+emoji/stage-directions would produce — it is somewhat inflated by output
+the system should not be generating in a voice-only channel. Not fixed
+here: changing C2's system prompt now would void this session's own
+figure. **Recorded in `BACKLOG.md`**, not fixed silently, per instruction.
+
+This entry is an append; no prior entry above is edited, per the append-only rule for
+this file.
