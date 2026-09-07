@@ -991,3 +991,173 @@ Commit 6858410a851a13b9ff54649d0cc415d3614c3fe4 is on origin/main. This
 hash was read from origin after an independent `git fetch origin`,
 checking the `origin/main` ref, following the `git push origin main`
 that landed this STOP report.
+
+---
+
+## 2026-09-07 — Thread 1.0.11: decomposition audit, emoji suppression, re-anchor
+
+### Machine/repo verification (Task 1)
+
+Confirmed at session start: `hostname` = `jesterai`, `/home/jester/jester-1.0`
+exists — as expected, proceeded.
+
+Both writable repos clean and level with origin after an independent
+`git fetch origin`:
+- `jester-1.0`: local `main` = origin/main =
+  `e0bb38a0877e91f812124e8abe7a411e3a7a48d6` at session start.
+- `jesterai`: local `master` = origin/master =
+  `b0288d3e8f00cd085049458e6f45387c4bbd8a15`, no changes made this session.
+
+No leftover processes from thread 1.0.10 were found (`ps aux` reviewed in
+full): everything running was legitimate standing infrastructure —
+`ollama serve` plus its two pinned `llama-server` instances (the D0 model
+and the embed model), `jester-2.1`'s own `uvicorn` service, the kiosk
+Chromium browser, PipeWire/WirePlumber, sshd, this Claude Code session.
+Nothing was killed because nothing needed killing.
+
+### Task 2 — decomposition audit
+
+Full finding recorded in `DECISIONS.md` DR-027. Summary: the code was
+already correct (`t_ttfa_s` is measured to `playout_start`, logged at
+first-PCM-frame-write; `playout_s` is post-TTFA and was already excluded).
+Verified per-turn against all 20 of 1.0.10's backed-up turns: the four
+partition stages sum to within 5-37 ms of `t_ttfa_s` per turn (median gap
+6 ms). The apparent contradiction in this thread's framing was comparing
+summed stage *medians* against the *median* of the total, which is not
+valid arithmetic. 1.0.10's 3.076 s / 4.959 s figure is **not** revised by
+this audit. Fixed presentationally only:
+`c5_orchestrator/bar_b_harness.py`'s `summarize()` now emits
+`partition_gap_median_s`/`partition_gap_max_s` and renames the playout
+field to `post_ttfa_playout_s_median`.
+
+1.0.10's logs were copied to `logs_1.0.10_backup/` (gitignored, not
+committed) before any code changes or runs this session, per instruction.
+Originals in `logs/{c1,c2,c4,c5}.jsonl` were left in place, untouched.
+
+### Task 3 — emoji/stage-direction suppression, DR-024 gap closed
+
+- **C2 prompt** (`c2_reason/src/c2_reason/prompt.py`, `STABLE_PREAMBLE`).
+  Before: "You are Jester, a meeting assistant. Respond briefly and
+  naturally to the ongoing conversation below.\n\n" — After: "You are
+  Jester, a meeting assistant. Respond briefly and naturally to the
+  ongoing conversation below. Your reply is spoken aloud, not read: never
+  include emoji, asterisked stage directions (e.g. *laughs*), or
+  parenthetical narration -- write only the words to be spoken.\n\n"
+- **C2 stop sequence** (`c2_reason/src/c2_reason/ollama_client.py`):
+  `options.stop = ["<end_of_turn>"]` added to the raw-generate call.
+  **Closes DR-024's stop-sequence gap.**
+- **C4 defensive filter** (new `c4_speech/src/c4_speech/text_filter.py`,
+  wired into `main.py`'s `/synthesize`): strips emoji, asterisked stage
+  directions, parenthetical narration, and complete-or-cap-truncated
+  Gemma control markers, independent of C2's prompt. `/synthesize` logs
+  `stripped`/`raw_len`/`filtered_len` (not raw text, matching this repo's
+  existing no-transcript-content logging convention).
+- **Unit tests**: `c4_speech/tests/test_text_filter.py`, 10 cases built
+  from DECISIONS.md's DR-020 anomaly strings (`*Giggles softly*`, `✨`,
+  `🎭`, the baseline sentence) plus a complete and a cap-truncated
+  `<end_of_turn>` marker, parenthetical narration, a combined-classes
+  case, and two over-stripping guards. Run via a plain-Python runner
+  (`pytest` is not installed in `c4_speech`'s venv — noted in
+  `BACKLOG.md` as a follow-up, out of scope to fix here). **10/10
+  passed.**
+- **Live smoke-check** (not just unit tests): started C2 and C4 directly
+  on alternate ports (8102/8104), sent a real turn through the real
+  pinned model — response "Hello there." passed through C4 unmodified
+  (`stripped: false`) — then sent a hand-crafted 52-char string
+  combining all four classes directly to `/synthesize`; C4 filtered it to
+  the intended 20-char `"Sure! Happy to help."` (`stripped: true`) and
+  returned valid WAV audio (200 OK) in both cases. Both smoke processes
+  killed cleanly afterward.
+
+### Task 4 — re-anchor
+
+Smoke test above stands as the non-interactive proof that C2+C4 (the
+components this session's changes touched) still complete end to end
+after the changes. **Scoping note:** a true full-loop (C1→C5→C2→C4)
+non-interactive smoke test is not possible — `c1_capture`'s `/transcribe`
+blocks on real microphone capture with no text-injection path, by design
+(confirmed by reading `c1_capture/main.py`). The full loop is exercised
+only by the operator's live spoken run below, consistent with
+thread-1.0.6's standing ruling that CC verifies plumbing, not the live run
+itself.
+
+`ops/run_d0.sh`'s log-truncation bug is fixed: each invocation now writes
+to `logs/run_<UTC timestamp>/` instead of truncating the flat
+`logs/{c1,c2,c4,c5}.jsonl` files via `>` redirection; `logs/latest` is
+symlinked to the most recent run directory. `bar_b_harness.py`'s
+`--log-dir` default now follows `logs/latest`.
+
+**Operator: run the twenty-turn spoken Bar B measurement yourself, in
+your own SSH terminal, from `/home/jester/jester-1.0`:**
+
+    ops/run_d0.sh --turns 20
+
+Output lands in a fresh timestamped directory under `logs/` (printed by
+the script at startup, and reachable afterward via `logs/latest`); do not
+overwrite or delete it. When it's done, hand the session back so Task 5's
+figure can be computed from those logs (e.g.
+`c5_orchestrator/.venv/bin/python -m c5_orchestrator.bar_b_harness
+--turns 20 --log-dir logs/latest`).
+
+Not driven by this session, and no background monitor was started, per
+instruction.
+
+### Task 5 — deferred
+
+Not run this session: it depends on the operator's spoken run above,
+which has not happened yet. Will be computed and appended as a new,
+separate RELAY.md entry once the operator hands the session back with
+that run complete.
+
+### Task 6 — records
+
+- `DECISIONS.md`: DR-027 filed (this repo's next free number, confirmed
+  by checking the highest DR across both this file and
+  `jesterai/DECISIONS.md` before assigning it — DR-026 was the prior
+  highest). Covers the decomposition audit, the emoji/control-marker
+  suppression at both C2 and C4, and explicitly closes DR-024's
+  stop-sequence gap.
+- `BACKLOG.md`: the emoji/stage-direction item moved from Open to Done,
+  describing what was actually fixed; a new Open item records the missing
+  `pytest` dependency in `c4_speech`'s venv found while adding this
+  session's tests.
+- `jesterai`: not touched — no box-level finding surfaced this session
+  that needed filing there.
+
+**Untouched-repo proof.** `jester-2.1`: read-only
+`git -C /home/jester/jester-2.1 rev-parse HEAD` =
+`c41dc92fd121dafaae39a50d68e7aa91e73f9756`, checked at both the start and
+the end of this session — unchanged, repo untouched.
+`HeathenS_Talkings`: confirmed absent from the box
+(`find /home/jester -maxdepth 1 -iname "*heathen*"` returned nothing) — no
+such repo exists here to touch.
+
+### Manual steps remaining (Claude.ai UI)
+
+- **Sync now** on the jester-1.0 project.
+- **project-knowledge allowlist**: new files this session are
+  `c4_speech/src/c4_speech/text_filter.py` and
+  `c4_speech/tests/test_text_filter.py` — add both if this project's
+  knowledge sync should pick them up.
+- **chat rename** check: thread 1.0.11, "Decomposition audit clean,
+  emoji/stage-direction suppression, Bar B re-anchor handed to operator"
+  or similar.
+
+### SHAs stated in this report (repeated, per this session's instruction)
+
+- jester-1.0 origin/main at session start:
+  e0bb38a0877e91f812124e8abe7a411e3a7a48d6
+- jester-1.0 origin/main after this session's Task 2/3/4 commit:
+  177f088d02644600eb929e9cae1762e7a9088ebb
+- jesterai origin/master (unchanged this session):
+  b0288d3e8f00cd085049458e6f45387c4bbd8a15
+- jester-2.1 HEAD (read-only, before and after this session, unchanged):
+  c41dc92fd121dafaae39a50d68e7aa91e73f9756
+- Model blob digest in force (unchanged, DO NOT CHANGE per instruction):
+  sha256-90ce98129eb3e8cc57e62433d500c97c624b1e3af1fcc85dd3b55ad7e0313e9f
+
+### Proof-of-push
+
+Pending: this STOP report is committed and pushed in the commit that
+follows this entry, then verified with an independent `git fetch origin`
+and the resulting hash recorded in a follow-up note below.
