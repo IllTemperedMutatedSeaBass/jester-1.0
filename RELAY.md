@@ -1460,3 +1460,12 @@ HEAD` at the close of this session.
 Pending: recorded in an addendum immediately below, after this entry is
 committed, pushed, and its hash independently re-verified against
 `origin/main`.
+
+### Proof-of-push addendum (this session's own commit)
+
+Commit 4ad91060c931585f393edf89a8ab31588b4db541 is on origin/main. This
+hash was read from `origin` after an independent `git fetch origin`,
+checking the `origin/main` ref, following the `git push origin main` that
+landed this STOP report (preceded by the DR-029–032 commit,
+dae93e85dd1776a58ebc2f5081bfc85d8338684a, also confirmed against
+origin/main at the time).
