@@ -1161,3 +1161,12 @@ such repo exists here to touch.
 Pending: this STOP report is committed and pushed in the commit that
 follows this entry, then verified with an independent `git fetch origin`
 and the resulting hash recorded in a follow-up note below.
+
+### Proof-of-push addendum (this session's own commit)
+
+Commit 74d4c0ec70fbbeff68071c985936d34591bf3b49 is on origin/main. This
+hash was read from `origin` after an independent `git fetch origin`,
+checking the `origin/main` ref, following the `git push origin main` that
+landed this STOP report (and the DR-027/BACKLOG commit before it,
+177f088d02644600eb929e9cae1762e7a9088ebb, also confirmed against
+origin/main at the time).
