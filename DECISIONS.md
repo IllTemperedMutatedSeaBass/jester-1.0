@@ -653,3 +653,167 @@ figure. **Recorded in `BACKLOG.md`**, not fixed silently, per instruction.
 
 This entry is an append; no prior entry above is edited, per the append-only rule for
 this file.
+
+---
+
+## 2026-09-07 — Thread 1.0.11: decomposition audit, emoji suppression, re-anchor
+
+### DR-027 — Decomposition audit closes clean; DR-024 stop-sequence gap closed; emoji/stage-direction suppression added at both C2 and C4 (2026-09-07)
+
+**Decomposition audit (Task 2).** 1.0.10's reported medians (ASR tail
+0.757 s, C2 prefill 0.284 s, C2 generate 0.975 s, TTS 0.916 s, playout
+3.906 s, against T_ttfa median 3.076 s) read as impossible because playout
+alone exceeds the total. Read `decompose_turn()`
+(`c5_orchestrator/src/c5_orchestrator/bar_b_harness.py`) and the C5 log
+emission points (`c5_orchestrator/src/c5_orchestrator/playback.py`) to
+establish ground truth:
+
+- `t_ttfa_s = playout_start.monotonic_ts - endpoint.endpoint_monotonic_ts`.
+  `playout_start` is logged at first-PCM-frame-write time (confirmed in
+  `playback.py`'s own docstring: "Logs playout_start at first-frame-write
+  time -- that is the T_ttfa..."), matching DR-017's definition exactly.
+- `playout_s = playout_done.monotonic_ts - playout_start.monotonic_ts`,
+  i.e. end-of-audio minus first-frame -- this is POST-T_ttfa by
+  construction and was already excluded from `t_ttfa_s` in the code.
+- The four stages that DO partition T_ttfa are sequential:
+  `asr_tail_s` (endpoint -> asr_done), `c2_prefill_s` (prefill_start ->
+  prefill_done), `c2_generate_s` (prefill_done -> generate_done), `tts_s`
+  (synth_start -> synth_done).
+
+Verified per-turn against all 20 of 1.0.10's backed-up log lines (see
+below): summing the four partition stages per turn and comparing against
+that turn's own `t_ttfa_s` gives a gap of 5-37 ms per turn (median 6 ms,
+mean 9 ms) -- a genuine, near-exact sequential partition, not a
+mislabelling. **Verdict: the code and the DR-017 T_ttfa definition were
+already correctly applied; nothing was mismeasured or mislabelled at the
+timestamp/field level, and `DECISIONS.md`'s 1.0.10 entry already carried
+the correct caveat in prose** ("playout is not part of T_ttfa, which is
+measured to `playout_start`, not `playout_done`"). The apparent
+contradiction in this thread's prompt (summed stage *medians* of
+0.757+0.284+0.975+0.916=2.932 s vs. playout's 3.906 s, against a 3.076 s
+T_ttfa) is an artifact of comparing summed medians against a separately
+computed median of the total -- medians do not add across a set of turns
+with different individual timings, so that comparison was never valid
+arithmetic, independent of whether the underlying measurement was correct.
+1.0.10's **3.076 s / 4.959 s figure stands unchanged and is not
+superseded by this audit** (Task 4's re-anchor below supersedes it for an
+unrelated reason -- the emoji/stage-direction suppression change).
+
+The one real defect found was presentational, not a measurement error:
+`playout_s_median` was listed in `summarize()`'s output alongside the four
+true partition members with no subtotal or partition-membership marker,
+which is genuinely liable to make a reader eyeball it as a fifth term.
+Fixed in `bar_b_harness.py`: `summarize()` now emits
+`partition_gap_median_s` / `partition_gap_max_s` (the direct per-turn
+partition-validity check above) and renames the playout figure to
+`post_ttfa_playout_s_median` with a docstring explaining why it is
+reported separately. Re-running `summarize()` against 1.0.10's own backed
+-up logs reproduces the original figures exactly (t_ttfa_median_s =
+3.076412712000092, t_ttfa_p90_s = 4.9590917236998395), confirming the fix
+is presentational only -- no timestamp, event, or arithmetic changed.
+
+1.0.10's logs were copied to `logs_1.0.10_backup/` (gitignored, not
+committed) before any of this session's code changes or runs, per
+instruction not to risk them; the original `logs/{c1,c2,c4,c5}.jsonl`
+files were left untouched and are superseded only by the run_d0.sh log
+-path fix below, not deleted.
+
+**Emoji, stage-direction, and control-marker suppression (Task 3).**
+DR-020's Anomaly 2 measured Kokoro voicing emoji and asterisked stage
+directions aloud rather than dropping them (52-104% synthesis-time
+inflation in test) and DR-024 left the raw-generate path's
+`<end_of_turn>` stop-sequence handling as an open gap after it leaked into
+turn 9's spoken output. Both closed here, independently, at both ends of
+the pipeline:
+
+- **C2 prompt (`c2_reason/src/c2_reason/prompt.py`, `STABLE_PREAMBLE`).**
+  Before:
+  > "You are Jester, a meeting assistant. Respond briefly and naturally to
+  > the ongoing conversation below.\n\n"
+
+  After:
+  > "You are Jester, a meeting assistant. Respond briefly and naturally to
+  > the ongoing conversation below. Your reply is spoken aloud, not read:
+  > never include emoji, asterisked stage directions (e.g. *laughs*), or
+  > parenthetical narration -- write only the words to be spoken.\n\n"
+
+  This is a fixed addition to the stable preamble (still constant across
+  turns), so it does not disturb DR-013a's append-after-transcript
+  ordering or G1's cached-prefix property.
+
+- **C2 stop sequence (`c2_reason/src/c2_reason/ollama_client.py`,
+  `generate()`).** `raw: true` (DR-024) bypasses Ollama's normal chat
+  -renderer stop-token handling, so `<end_of_turn>` was never registered
+  as a stop sequence on the raw-generate call and could leak into output
+  text verbatim if the model emitted it. Added `"stop": ["<end_of_turn>"]`
+  to the `options` dict on the `/api/generate` call. **This closes
+  DR-024's stop-sequence gap.**
+
+- **C4 defensive filter (`c4_speech/src/c4_speech/text_filter.py`, new
+  module; wired into `c4_speech/src/c4_speech/main.py`'s `/synthesize`
+  handler).** `strip_unspeakable()` strips emoji, asterisk-delimited stage
+  directions, parenthetical narration, and complete-or-cap-truncated
+  Gemma control markers (`<end_of_turn>` and a truncated prefix such as
+  `<end_of_tur` at end-of-string, covering the case where a 40-token cap
+  cuts generation off mid-marker -- DR-020 recorded exactly one turn,
+  turn 18, hitting that cap) before text reaches `engine.synthesize()`.
+  This is deliberately independent of whatever C2's prompt asks the model
+  to avoid, per the instruction to fix this defensively at both ends: it
+  holds even if a future prompt change or model swap regresses C2's own
+  output. `/synthesize` now logs `stripped` (bool), `raw_len`,
+  `filtered_len` on `synthesize_start` -- not the raw text itself, kept
+  consistent with the rest of this repo's structured logs, which never
+  store transcript content -- so a future run can distinguish "the median
+  moved because fewer turns needed stripping" from ordinary variance.
+
+  **Unit tests** (`c4_speech/tests/test_text_filter.py`, 10 cases, run via
+  a plain-Python runner since `pytest` is not installed in `c4_speech`'s
+  venv -- `python3 -m unittest` does not collect bare pytest-style
+  functions and installing a new dependency was out of scope for a filter
+  fix): plain text passes through untouched; the four DR-020 anomaly
+  strings (`*Giggles softly*`, a lone `✨`, a lone `🎭`, and the baseline
+  sentence they were appended to) are stripped correctly; a complete
+  `<end_of_turn>` marker and a cap-truncated `<end_of_tur` prefix are both
+  stripped; parenthetical narration is stripped; a combined string
+  carrying all four classes at once collapses to the intended spoken
+  text; ordinary punctuation (`3:30 --`) and a bare mid-sentence `<` (not
+  at end-of-string) are left untouched, guarding against
+  over-stripping. **10/10 passed.**
+
+  **Live wiring smoke-checked** (not just unit-tested) by starting C2 and
+  C4 directly on alternate ports (8102/8104) and driving two turns
+  through the real pinned model and real Kokoro engine: a real C2
+  response ("Hello there.") passed through C4 unmodified
+  (`stripped: false`); a hand-crafted string combining all four classes
+  (`"Sure! 🎭 *laughs* (winks) Happy to help.<end_of_turn>"`, 52 chars) was
+  filtered to `"Sure! Happy to help."` (20 chars, `stripped: true`) and
+  synthesized to valid WAV audio (200 OK, non-zero byte count) in both
+  cases. Both smoke processes were killed cleanly afterward; no residual
+  processes were left running.
+
+**Re-anchor (Task 4).** `ops/run_d0.sh` truncated `logs/{c1,c2,c4,c5}.jsonl`
+via `>` redirection on every invocation, so a second run silently destroyed
+the first run's figures -- a one-mistyped-command-away data-loss risk.
+Fixed: each invocation now creates `logs/run_<UTC timestamp>/` and writes
+there; `logs/latest` is refreshed as a symlink (never a copy) to the most
+recent run directory for convenience. `bar_b_harness.py`'s `--log-dir`
+default was changed from `logs` to `logs/latest` to match. `.gitignore`
+gained `logs_*_backup/` alongside the existing `logs/` so this thread's
+backup directory (and any future one) is never accidentally committed.
+
+The fresh Bar B run itself is **operator-run, not CC-run**, per
+thread-1.0.6's standing ruling and this thread's explicit instruction not
+to drive the spoken run or relay prompts through chat. The exact handoff
+command and log destination are printed in this session's STOP report in
+`RELAY.md`, not repeated here.
+
+**Carried forward unchanged, not re-verified this session:** model pin
+(`gemma4-e4b-bakeoff:latest`, digest
+`sha256-90ce98129eb3e8cc57e62433d500c97c624b1e3af1fcc85dd3b55ad7e0313e9f`),
+live carve (16.0 GiB), kernel (`7.0.0-31-generic`). None of Task 1-4's
+work touched the model, the carve, or the kernel -- confirmed by reading,
+not by re-measuring, since the instruction was explicitly not to change
+either.
+
+This entry is an append; no prior entry above is edited, per the append-only rule for
+this file.

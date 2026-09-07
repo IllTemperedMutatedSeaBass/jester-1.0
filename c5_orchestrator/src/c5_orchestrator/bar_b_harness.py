@@ -114,7 +114,23 @@ def decompose_turn(events: list[dict]) -> dict[str, float] | None:
     }
 
 
+_PARTITION_STAGES = ["asr_tail_s", "c2_prefill_s", "c2_generate_s", "tts_s"]
+
+
 def summarize(decompositions: list[dict[str, float]]) -> dict[str, Any]:
+    """Note (DR-027 decomposition audit): `_PARTITION_STAGES` are the ONLY
+    stages that partition T_ttfa -- per-turn, their sum matches t_ttfa_s to
+    within a few ms (scheduling overhead between stage boundaries). Do not
+    compare a *summed median* of these stages against the *median* of
+    t_ttfa_s: medians do not add across turns with different individual
+    timings, so that comparison is not a validity check and will look wrong
+    even when the underlying data is fine -- compare per-turn sums instead
+    (see `partition_gap_median_s` below, or bar_b_harness tests).
+
+    `playout_s` (playout_start -> playout_done, i.e. end-of-audio) is
+    POST-T_ttfa by DR-017's definition (T_ttfa ends at first PCM frame,
+    logged as playout_start) and is reported separately, never inside the
+    partition, so it is not mistaken for a fifth partition member."""
     t_ttfa_values = [d["t_ttfa_s"] for d in decompositions]
     summary: dict[str, Any] = {
         "n_turns": len(decompositions),
@@ -123,9 +139,20 @@ def summarize(decompositions: list[dict[str, float]]) -> dict[str, Any]:
         if len(t_ttfa_values) >= 10
         else max(t_ttfa_values),
     }
-    for stage in ["asr_tail_s", "c2_prefill_s", "c2_generate_s", "tts_s", "playout_s"]:
+    for stage in _PARTITION_STAGES:
         values = [d[stage] for d in decompositions]
         summary[f"{stage}_median"] = statistics.median(values)
+
+    partition_gaps = [
+        d["t_ttfa_s"] - sum(d[stage] for stage in _PARTITION_STAGES)
+        for d in decompositions
+    ]
+    summary["partition_gap_median_s"] = statistics.median(partition_gaps)
+    summary["partition_gap_max_s"] = max(partition_gaps)
+
+    summary["post_ttfa_playout_s_median"] = statistics.median(
+        d["playout_s"] for d in decompositions
+    )
     return summary
 
 
@@ -150,8 +177,10 @@ def main() -> None:
     parser.add_argument(
         "--log-dir",
         type=Path,
-        default=Path("logs"),
-        help="Directory containing c1.jsonl, c2.jsonl, c4.jsonl, c5.jsonl",
+        default=Path("logs/latest"),
+        help="Directory containing c1.jsonl, c2.jsonl, c4.jsonl, c5.jsonl "
+        "(default: logs/latest, the symlink run_d0.sh points at its most "
+        "recent per-run timestamped log directory -- DR-027)",
     )
     args = parser.parse_args()
 

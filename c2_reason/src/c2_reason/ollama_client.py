@@ -11,6 +11,12 @@ renderer (RENDERER/PARSER gemma4) puts the model into an unbounded
 content, on both /api/generate (untemplated) and /api/chat (templated).
 `raw: true` bypasses that renderer entirely; `prompt.PromptBuilder` hand
 -renders the Gemma turn markers the model needs instead.
+
+Per DR-027, closing DR-024's stop-sequence gap: `raw: true` also bypasses
+Ollama's normal stop-token handling for the chat renderer, so `<end_of_turn>`
+must be passed explicitly as a `stop` sequence or the model can emit it as
+literal output text (observed thread-1.0.10 turn 9) rather than have it
+consumed as a generation-ending token.
 """
 import httpx
 
@@ -28,6 +34,7 @@ def generate(config: Config, prompt: str) -> dict:
             "options": {
                 "num_ctx": config.NUM_CTX,
                 "num_predict": config.MAX_TOKENS,
+                "stop": ["<end_of_turn>"],
             },
         },
         timeout=60.0,

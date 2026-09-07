@@ -2,19 +2,13 @@
 
 ## Open
 
-- **C2's output carries emoji and markdown stage directions (e.g. ✨, 🎭,
-  `*Giggles softly*`) that Kokoro does not drop — it voices them,
-  materially inflating synthesis time and audible duration (measured
-  thread 1.0.10, DR-026: plain text 1.899 s vs. the same text plus a
-  stage direction 3.883 s, plus a single emoji 2.880 s). Because both
-  C2's full token generation and C4's full TTS synthesis complete before
-  `playout_start`, this output distorts every Bar B T_ttfa figure
-  measured against the current system prompt, including thread 1.0.10's
-  20-turn run. Not fixed in thread 1.0.10 on purpose: changing C2's
-  system prompt mid-thread would have voided that run's own figure. Next
-  session that touches C2's system prompt should suppress emoji/stage
-  directions for the voice-only channel, then re-run Bar B once changed
-  (a new figure, not a patch to the existing one).
+- **`c4_speech`'s venv has no `pytest` installed** (found thread 1.0.11
+  while adding `c4_speech/tests/test_text_filter.py`). Tests are written
+  pytest-style (bare `test_*` functions) and were verified via a
+  throwaway manual runner rather than `pytest`/`unittest discover`
+  (`unittest` does not collect bare functions). Installing `pytest` was
+  out of scope for a text-filter fix. Add it to `c4_speech/pyproject.toml`
+  dev deps next time that package is touched, so `pytest` runs directly.
 
 - **Interactive spoken Bar B runs are driven from the operator's own
   terminal, never relayed through chat (thread 1.0.10).** An earlier
@@ -137,3 +131,18 @@
   entry point. Bar B harness written
   (`c5_orchestrator.bar_b_harness`) and unit-verified against synthetic
   log data — not yet run against a real loop. (thread 1.0.6)
+
+- **Emoji/stage-direction suppression and DR-024's stop-sequence gap,
+  both closed (DR-027, thread 1.0.11).** C2's `STABLE_PREAMBLE` now
+  instructs the model not to emit emoji, asterisked stage directions, or
+  parenthetical narration; C2's `/api/generate` call now passes
+  `"stop": ["<end_of_turn>"]`, closing the gap DR-024 left open after
+  turn 9 leaked a literal `<end_of_turn>` in thread 1.0.10. C4 also
+  strips the same classes (plus complete-or-truncated Gemma control
+  markers) defensively, independent of C2's prompt, in a new
+  `c4_speech.text_filter.strip_unspeakable()`, unit-tested (10/10) and
+  live-smoke-tested against the real model and Kokoro engine. `run_d0.sh`
+  no longer truncates prior logs (writes to `logs/run_<timestamp>/`,
+  `logs/latest` symlinked). Bar B was re-anchored; see DR-027 and
+  RELAY.md's thread-1.0.11 STOP report for the fresh figure once the
+  operator's spoken run completes.

@@ -14,6 +14,7 @@ from fastapi import FastAPI, HTTPException, Response
 from .config import Config
 from .engines.base import TTSEngine
 from .logging_util import log_event
+from .text_filter import strip_unspeakable
 
 config = Config()
 app = FastAPI()
@@ -58,9 +59,19 @@ def synthesize(text: str, voice: str | None = None, turn_id: str | None = None):
         raise HTTPException(status_code=503, detail="TTS engine not initialised")
 
     turn_id = turn_id or str(uuid.uuid4())
-    log_event("C4", "synthesize_start", turn_id, engine=config.TTS_ENGINE)
+    filtered_text = strip_unspeakable(text)
+    stripped = filtered_text != text
+    log_event(
+        "C4",
+        "synthesize_start",
+        turn_id,
+        engine=config.TTS_ENGINE,
+        stripped=stripped,
+        raw_len=len(text),
+        filtered_len=len(filtered_text),
+    )
 
-    samples, sample_rate = engine.synthesize(text, voice or config.DEFAULT_VOICE)
+    samples, sample_rate = engine.synthesize(filtered_text, voice or config.DEFAULT_VOICE)
 
     log_event(
         "C4",

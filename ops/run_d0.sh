@@ -26,8 +26,16 @@ C1_PORT="${C1_PORT:-8001}"
 C2_PORT="${C2_PORT:-8002}"
 C4_PORT="${C4_PORT:-8004}"
 
-LOG_DIR="${REPO_ROOT}/logs"
+# Each invocation gets its own timestamped directory (DR-027) -- logs used
+# to be written with `>` truncation straight into logs/, so a second run
+# silently destroyed the first run's figures. `logs/latest` is refreshed to
+# point at the most recent run for convenience; it is a symlink, never a
+# copy, so it never itself holds data that could be overwritten.
+RUN_STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+LOG_DIR="${REPO_ROOT}/logs/run_${RUN_STAMP}"
 mkdir -p "${LOG_DIR}"
+ln -sfn "run_${RUN_STAMP}" "${REPO_ROOT}/logs/latest"
+echo "Logging this run to ${LOG_DIR} (logs/latest -> run_${RUN_STAMP})" >&2
 
 # The bonded headset comes up on A2DP (sink-only) by default; C1 capture
 # and C4 playback are simultaneous, so this must be HFP/mSBC before any
