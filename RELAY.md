@@ -1338,3 +1338,125 @@ checking the `origin/main` ref, following the `git push origin main` that
 landed this continuation's STOP report (and the DR-028 commit before it,
 a99ce44550911f01778186c1d69a02f8ddc268fc, also confirmed against
 origin/main at the time).
+
+## 2026-09-07 — Thread 1.0.12: corpus and trigger rulings before D1 retrieval — STOP report
+
+### Machine and repo verification
+
+Session launched at `/home/jester`, hostname `jesterai`, user `jester`,
+`/home/jester/jester-1.0` present — machine confirmed as specified before
+any work began. Both `jester-1.0` and `jesterai` were fetched independently
+and found clean and level with origin before this thread's edits began:
+`jester-1.0` on `main`, up to date with `origin/main` at
+ff8ccdb6e026598892b065762a9dd2cf7baf80f1 (this is the addendum commit that
+closed thread 1.0.11 — no further work had landed since); `jesterai` on
+`master`, up to date with `origin/master` at
+b0288d3e8f00cd085049458e6f45387c4bbd8a15, matching what thread 1.0.11's own
+STOP report recorded for it. `jester-2.1` HEAD (read-only) was
+c41dc92fd121dafaae39a50d68e7aa91e73f9756 before this thread's work and is
+unchanged after it. `HeathenS_Talkings` has no repo or working copy present
+on this box (searched `/home/jester` to depth 2), so no HEAD is readable —
+recorded as absence, not asserted nonexistence of the project elsewhere.
+
+### What this session did
+
+Per WAYS_OF_WORKING §7/machine-authority convention, this session wrote NO
+application code (no package under `c1_/c2_/c4_/c5_` touched). It read
+DR-008, DR-009 (`jesterai/DECISIONS.md`), SEED §2 (C3) and §8 q1
+(`jesterai/SEED_jester-1.0.md`), and DR-016 through DR-028 across both
+repos' `DECISIONS.md` files before ruling anything, and confirmed via
+`mount`/`systemctl`/`git ls-files`/`.gitignore` inspection rather than
+assertion for Tasks 3 and 4's factual claims.
+
+Four rulings filed as DR-029 through DR-032 in this repo's `DECISIONS.md`
+(next free number confirmed as DR-029 by checking the highest across both
+files — DR-028 here, DR-026 in jesterai — before assigning):
+
+- **DR-029.** A third C3 trigger path is ruled: Tier 2 splits into Tier 2a
+  (raw law/standards text, unchanged from DR-008 — substantiates only,
+  never triggers) and Tier 2b (derived criteria, DR-009's existing
+  content), and Tier 2b gains trigger authority via criteria EVALUATION,
+  not retrieval, because DR-008's noise mechanism (a nearest-neighbour
+  chunk always exists in bulk text) does not apply to evaluating an
+  utterance against a small, fixed set of checkable propositions. DR-008
+  itself is preserved, not reversed. Recorded honestly as NOT settled:
+  the fire-rate bar for criteria specificity/count (must be fixed before
+  any experiment, per WAYS_OF_WORKING §7); whether evaluation belongs in
+  C3 or C2 (a latency question against C3's gate budget, unmeasured); and
+  who derives criteria and signs off they are not too-close paraphrases of
+  licensed standards text (a legal call). SEED §8 q1 is explicitly NOT
+  closed by this ruling; §8 q2 is annotated in place in `jesterai`, per
+  DR-029's own text.
+- **DR-030.** Isolation is ruled as the stated data-handling posture for
+  all document classes (no per-document special-casing; the control is a
+  standalone, purged box). Ruled as INTENT ONLY: no purge mechanism exists.
+  Checked this session and recorded plainly: logs/transcripts persist
+  unpurged in the working tree (git-ignored, so absent from committed
+  history but not from disk); `ollama.service` is an enabled, running
+  systemd unit, so model/KV state is persistent by design; the vector
+  store does not yet exist (empty by absence, not by control); and
+  untracked 2.x-stream residue (`corpus_files/`, `models/`, `bakeoff/`,
+  `backup-demo-input-2026-08-25T004252/`) was found on the box outside
+  either repo at session start, evidencing the gap concretely. Filed here
+  as 1.x product posture; the box-level purge-mechanism work itself is
+  cross-referenced to `jesterai/DECISIONS.md`'s dated entry this session
+  also filed, per PORTFOLIO.md §6.
+- **DR-031.** Tier assignment is ruled per-document at ingest, on
+  provenance/authority (is this an instrument of the company's own
+  governance) rather than volume or sensitivity — DR-008's own "open
+  regulatory correspondence is Tier 1" entry is cited as the edge case
+  that proves the test. Safe default for an ambiguous/unassigned document
+  is ruled non-triggering, never Tier 1, reasoned from DR-008's own
+  "Tier 1 is the only trigger source" statement. A reject path (not just a
+  tier field) is ruled necessary per DR-009's redistribution constraint.
+  The DHI corpus was NOT classified this session (volume not mounted;
+  `mount | grep jester` returned nothing) — the entry states what a future
+  ingest session needs (provenance, document type, supersession status,
+  licensing status) to do so.
+- **DR-032.** C2's retrieval interface is ruled shaped for shared 1.x/2.x
+  use from the outset (a `corpus_id` + `mode` field, retrieval behind an
+  interface, DR-013(a)'s append-after-transcript ordering discipline
+  expressed mode-independently), anchored in SEED §3/§7's existing
+  HTTP/env-address commitments rather than asserted fresh. The cost (two
+  currently-dead parameters) is named honestly as a deliberate, narrow
+  exception to no-premature-abstraction. Explicitly reconciled against
+  `PORTFOLIO.md` §5 ("zero shared code by default," copy-then-diverge):
+  this rules interface SHAPE only, grants no license to a shared package,
+  deployment, or corpus.
+
+`BACKLOG.md` (this repo) updated: what DR-029–032 make buildable for D1
+now, and what remains open before that build starts, in priority order
+(fire-rate bar first; C3-vs-C2 placement; criteria-derivation authorship;
+ingest-step provenance capture; purge mechanism).
+
+`jesterai/DECISIONS.md`, `jesterai/BACKLOG.md`, and
+`jesterai/SEED_jester-1.0.md` were also touched this session (box-level
+purge-gap cross-reference, backlog item, and SEED §8 q2 annotation +
+"Last updated" stamp) — see that repo's own STOP report entry for detail;
+not duplicated here per the home-rule convention.
+
+### Manual steps remaining (Claude.ai UI)
+
+- **Sync now** on both the `jester-1.0` and `jesterai` Claude.ai projects.
+- **project-knowledge allowlist**: no new files created this session in
+  either repo (all edits were to existing `DECISIONS.md`, `BACKLOG.md`,
+  `SEED_jester-1.0.md` files) — no allowlist action needed.
+- **chat rename** check: thread 1.0.12, "Corpus and trigger rulings before
+  D1 retrieval (DR-029–032)" or similar.
+
+### SHAs stated in this report (repeated, per this session's instruction — full 40 characters, in prose)
+
+`jester-1.0` origin/main at session start, read after an independent
+`git fetch origin` checking the `origin/main` ref, was
+ff8ccdb6e026598892b065762a9dd2cf7baf80f1. `jesterai` origin/master at
+session start, read the same way checking `origin/master`, was
+b0288d3e8f00cd085049458e6f45387c4bbd8a15. `jester-2.1` HEAD, read-only,
+was c41dc92fd121dafaae39a50d68e7aa91e73f9756 before this session's work and
+is unchanged after it, confirmed by a second `git -C jester-2.1 rev-parse
+HEAD` at the close of this session.
+
+### Proof-of-push
+
+Pending: recorded in an addendum immediately below, after this entry is
+committed, pushed, and its hash independently re-verified against
+`origin/main`.
