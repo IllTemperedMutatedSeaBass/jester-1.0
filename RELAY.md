@@ -1567,3 +1567,12 @@ follow-up's work, confirmed by a second `git -C jester-2.1 rev-parse HEAD`.
 Pending: recorded in an addendum immediately below, after this entry is
 committed, pushed, and its hash independently re-verified against
 `origin/main`.
+
+### Proof-of-push addendum (this session's own commit)
+
+Commit 7e35c2215fc46320b7aefef77240d8c00227d19a is on origin/main. This
+hash was read from `origin` after an independent `git fetch origin`,
+checking the `origin/main` ref, following the `git push origin main` that
+landed this STOP report (preceded by the DR-033 commit,
+56fbc2060fb778b45793b9979119a794bee70ed1, also confirmed against
+origin/main at the time).
