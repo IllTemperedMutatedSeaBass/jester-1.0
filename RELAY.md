@@ -987,6 +987,7 @@ no such repo exists here to touch.
 
 ### Proof-of-push
 
-This STOP report will be committed and pushed after it is written; the
-real hash, read from origin after an independent fetch, is quoted in an
-addendum immediately following.
+Commit 6858410a851a13b9ff54649d0cc415d3614c3fe4 is on origin/main. This
+hash was read from origin after an independent `git fetch origin`,
+checking the `origin/main` ref, following the `git push origin main`
+that landed this STOP report.
