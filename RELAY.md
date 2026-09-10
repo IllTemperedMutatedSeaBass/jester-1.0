@@ -2622,3 +2622,111 @@ hash is written into this file before it has been read from the remote — see
 the correction filed in thread 1.0.15, which recorded that this same process
 error had by then occurred twice.
 
+
+### Proof-of-push addendum — thread 1.0.16 (appended, not edited)
+
+Every hash in this addendum was read from `origin` **after** the commits it
+names had been pushed, and was copied from the output of `git rev-parse
+origin/main`, `git ls-remote origin refs/heads/main` and `git log origin/main`.
+No hash in this thread's entries was typed before it had been read from the
+remote. The `Proof-of-push` section above still reads "Pending" and is left
+that way, per the append-only rule.
+
+**FIRST STATEMENT, from the first verification.** Commit
+c98884be5fb23bcff2b8ba78ba1a72885a8b48b9 is on origin/main. It was read after
+an independent `git fetch origin`, checking the `origin/main` ref via `git
+rev-parse origin/main`, and cross-checked directly against the remote with `git
+ls-remote origin refs/heads/main`, which returned the same 40-character hash.
+
+**SECOND STATEMENT, from a second and separately-run verification.** After a
+further independent `git fetch origin --prune`, `git rev-parse origin/main`
+again returned c98884be5fb23bcff2b8ba78ba1a72885a8b48b9, and `git ls-remote
+origin refs/heads/main` again returned that same 40-character hash against
+`refs/heads/main`. The two verifications were run as separate fetches and
+agree.
+
+**The three commits this thread put on origin/main, in order, all read from
+`git log origin/main` after the fetches above.**
+
+Commit 926b3811592eedbd28dd09c7eb8e173d55e6bce8 is on origin/main and carries
+**Tasks 1–4**: DR-042, DR-043, DR-044 and DR-045 appended to `DECISIONS.md`
+with their four matching `docs/decisions/` files. This is the
+bar-before-the-build commit required by WAYS_OF_WORKING §7, and **it contains
+no C3 code** — that was the point of committing it separately and first.
+
+Commit d241e6a502a15017ebe1c5fa40540cff8b89b32b is on origin/main and carries
+**Tasks 5–7**: C3's `policy.py` and rewritten `main.py`, C2's `conflict.py`
+and the `conflict_check` unified-corpus path, the C4 citation-filter fix, the
+rewritten DR-035 test, `ops/score_run.py`, `ops/smoke_c3.py`, the `run_d0.sh`
+and C5 wiring, and 74 passing tests across four packages.
+
+Commit c98884be5fb23bcff2b8ba78ba1a72885a8b48b9 is on origin/main and carries
+**Task 8**: the `BACKLOG.md` update and the thread 1.0.16 STOP report above.
+
+This addendum's own commit hash is deliberately NOT stated here. Stating it
+would require writing a hash for a commit that does not yet exist, which is
+exactly the regress that produced the fabricated placeholders corrected in
+threads 1.0.14 and 1.0.15. Its content is verifiable from `git log
+origin/main` directly.
+
+### MANUAL STEPS — files to re-sync
+
+**NEW FILES — these need adding to the project-knowledge allowlist before a
+sync will pick them up:**
+
+- `docs/decisions/DR-042-interjection-budget-and-batching.md`
+- `docs/decisions/DR-043-tier-partition-removed-as-trigger-control.md`
+- `docs/decisions/DR-044-interjection-form-state-the-conflict-then-stop.md`
+- `docs/decisions/DR-045-the-missing-evaluation-set.md`
+- `c2_reason/src/c2_reason/conflict.py`
+- `c3_router/src/c3_router/policy.py`
+- `c3_router/src/c3_router/logging_util.py`
+- `c3_router/tests/test_policy.py`
+- `c3_router/tests/test_observe.py`
+- `ops/score_run.py`
+- `ops/smoke_c3.py`
+
+Note that `docs/decisions/` is a **new directory** in this repo — if the
+allowlist is path-prefix based, adding the directory once covers all four DR
+files and every future one.
+
+**CHANGED FILES — already in the allowlist, need a re-sync:**
+
+- `DECISIONS.md`
+- `BACKLOG.md`
+- `RELAY.md`
+- `.env.example`
+- `ops/run_d0.sh`
+- `c2_reason/src/c2_reason/retrieval.py`
+- `c2_reason/src/c2_reason/main.py`
+- `c2_reason/src/c2_reason/config.py`
+- `c2_reason/src/c2_reason/ollama_client.py`
+- `c2_reason/tests/test_retrieval.py`
+- `c3_router/src/c3_router/main.py`
+- `c3_router/src/c3_router/config.py`
+- `c4_speech/src/c4_speech/text_filter.py`
+- `c4_speech/tests/test_text_filter.py`
+- `c5_orchestrator/src/c5_orchestrator/main.py`
+- `c5_orchestrator/src/c5_orchestrator/config.py`
+
+**NOT synced and not to be added:** `.env` (gitignored, holds the live
+machine's values) and everything under `logs/` (gitignored), which now includes
+`logs/smoke_c3/` from this thread's smoke run and will include
+`scored_candidates.json` once the spoken run is scored. DR-045 flags the
+retention question for that scored file against DR-030's isolation posture —
+it contains verbatim meeting utterances — and leaves it to the operator.
+
+**Also check:** chat rename (thread number + short descriptive title).
+
+### Closing note to the operator
+
+**Please re-sync BOTH repos and the Claude.ai project contents before the next
+thread begins.** The allowlist additions above matter more than usual this
+time: DR-042 through DR-045 are the first entries in this repo to live in
+`docs/decisions/` files, and a session that reads only `DECISIONS.md` will get
+the rulings but not the Options / Alternatives / Review-trigger reasoning
+behind them — which is exactly the material the next session needs, since
+DR-043's review trigger is the instrument the scored run is read against.
+
+This entry is an append; no prior entry above is edited, per the append-only rule for
+this file.
