@@ -2730,3 +2730,77 @@ DR-043's review trigger is the instrument the scored run is read against.
 
 This entry is an append; no prior entry above is edited, per the append-only rule for
 this file.
+
+### HANDOVER — the spoken run (thread 1.0.16, appended)
+
+**This section was promised earlier in this thread's STOP report ("the exact
+command is in the handover block below") and was missing from it.** Appended
+rather than inserted, per the append-only rule. Nothing above is edited.
+
+**THE COMMAND, to be run by the operator in their own SSH terminal:**
+
+    ops/run_d0.sh --turns 20
+
+**THE STALE-ENVIRONMENT-VARIABLE WARNING, measured this session rather than
+recalled.** `ops/run_d0.sh` sources `.env` with `set -a` *after* the shell
+environment is inherited, so **`.env` silently WINS over both an inline
+`VAR=x ops/run_d0.sh` prefix and an `export`ed variable.** Verified
+empirically with a minimal reproduction: with `C5_TURN_COUNT=10` in the env
+file, both `C5_TURN_COUNT=20 ./script` and `export C5_TURN_COUNT=99; ./script`
+were observed inside the script as **10**. No error, no warning.
+
+**The rule precisely: the clobber applies to every variable `.env` ASSIGNS,
+and only those.** Checked against the live file — `C5_TURN_COUNT`,
+`C5_BAR_B_TURN_COUNT`, `C5_C3_ENABLED` and `C3_MAX_INTERJECTIONS` are all
+assigned in `.env`, so a command-line prefix for any of them is discarded.
+`C5_TRANSCRIBE_TIMEOUT_S` is **not** in `.env`, so a prefix for that one does
+survive. **This is why the turn count is passed as `--turns 20` above** — a
+CLI argument C5 parses itself, which `.env` cannot reach. It is also why
+earlier threads' handover line carried both the prefix and `--turns 20`: only
+the second half was ever doing anything.
+
+To change a policy constant for this run, **edit `.env`** — do not prefix it.
+
+**I did not drive this run and started no monitor**, per instruction.
+
+**Where the output lands.** `ops/run_d0.sh` creates a fresh timestamped
+directory per invocation, `logs/run_<UTC stamp>/`, and refreshes the
+`logs/latest` symlink to point at it. Five files now, not four: `c1.jsonl`,
+`c2.jsonl`, **`c3.jsonl`**, `c4.jsonl`, `c5.jsonl`. Each run gets its own
+directory, so a second run does not destroy the first run's figures.
+
+**Then score it — this is DR-045's evaluation set and it is the point of the
+run:**
+
+    c5_orchestrator/.venv/bin/python ops/score_run.py logs/latest
+
+It replays every candidate and asks *should Jester have spoken* for all of
+them and *was it worth hearing* for the ones actually spoken, writing
+`scored_candidates.json` into the run directory. `--list` inspects without
+scoring. Ctrl-D stops early and keeps what has been scored so far; the file
+records whether the pass completed. **The scoring path was exercised end to
+end against a real on-disk `c3.jsonl` before this handover** — including the
+cross-turn case where a candidate raised on one turn is spoken in a batch on a
+later turn, which is the reconstruction most likely to be wrong and the one
+nothing else checks.
+
+**Bar B must be re-measured with the C3 stage broken out.** Read it knowing
+that the C3 call is made **after playback**, so it is outside T_ttfa and
+`bar_b_harness._PARTITION_STAGES` gains no member — the T_ttfa figure should
+stay comparable to thread 1.0.14's 4.035 s / 4.763 s, while the run as a whole
+will feel slower because `/observe` blocks between turns. **DR-017's 8 s kill
+switch applies. If it fires, report it as a result and a decision point — do
+not optimise it away.**
+
+**One thing to watch that this thread could not settle.** On the three-turn
+live smoke run, one of three conflict-check replies was unparseable
+(`rejected_reason: "reply matched neither form"`) and another used 103 of a
+120-token cap. Both make the gate quieter than intended. If the twenty-turn
+run raises very few candidates, check `c2.jsonl` for `rejected_reason` before
+concluding the corpus holds no conflicts — and note that DR-045's review
+trigger says the response to a thin run is a longer run or a conflict-rich
+agenda, **not a looser gate**, because loosening the gate to generate
+evaluation data would corrupt the evaluation.
+
+This entry is an append; no prior entry above is edited, per the append-only rule for
+this file.

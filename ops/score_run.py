@@ -105,6 +105,14 @@ def collect_candidates(events: list[dict]) -> list[dict]:
                 "spoken_with": [],
                 "batched": False,
                 "outcome_wall_ts": None,
+                # A candidate can be suppressed by budget on one
+                # opportunity and then EXPIRE before the next, in which
+                # case its terminal outcome is "expired" and the budget
+                # suppression would vanish from the row. DR-045 needs
+                # suppressed-by-budget visible because it is the evidence
+                # about DR-042's constants, so it is counted separately
+                # rather than overwritten by whatever happened last.
+                "suppressed_by_budget_count": 0,
             }
         elif name == "interjection_spoken":
             spoken = event.get("candidates", []) or []
@@ -124,6 +132,8 @@ def collect_candidates(events: list[dict]) -> list[dict]:
         elif name in TERMINAL_EVENTS:
             cid = event.get("candidate_id")
             if cid in candidates and candidates[cid]["outcome"] != "spoken":
+                if name == "candidate_suppressed_by_budget":
+                    candidates[cid]["suppressed_by_budget_count"] += 1
                 candidates[cid]["outcome"] = TERMINAL_EVENTS[name]
                 candidates[cid]["outcome_wall_ts"] = event.get("wall_ts")
 
@@ -148,11 +158,22 @@ def _run_stats(events: list[dict]) -> dict:
     return counts
 
 
+class _ScoringInterrupted(Exception):
+    """Operator ended the scoring pass early (Ctrl-D / Ctrl-C)."""
+
+
 def _ask(prompt: str, options: dict[str, str], allow_skip: bool = False) -> str | None:
     keys = "/".join(options)
     suffix = " (enter to skip)" if allow_skip else ""
     while True:
-        raw = input(f"{prompt} [{keys}]{suffix}: ").strip().lower()
+        try:
+            raw = input(f"{prompt} [{keys}]{suffix}: ").strip().lower()
+        except EOFError:
+            # Ctrl-D, or a closed terminal. Raised so the caller can write
+            # what has been scored SO FAR: the spoken run is one-shot, and
+            # losing a half-finished scoring pass means re-listening to a
+            # meeting that cannot be replayed.
+            raise _ScoringInterrupted from None
         if not raw and allow_skip:
             return None
         if raw in options:
@@ -160,14 +181,24 @@ def _ask(prompt: str, options: dict[str, str], allow_skip: bool = False) -> str 
         print(f"  please answer one of: {', '.join(options)}")
 
 
-def score(candidates: list[dict]) -> list[dict]:
-    print(f"\n{len(candidates)} candidate(s) to score.\n" + "=" * 66)
+def score(candidates: list[dict]) -> tuple[list[dict], bool]:
+    """Returns (candidates, completed). On an early exit the candidates
+    scored so far keep their marks and the rest are left unscored -- a
+    partial evaluation set is worth strictly more than none, and the file
+    records which it is."""
+    print(f"\n{len(candidates)} candidate(s) to score."
+          f"  (Ctrl-D to stop early; what you have scored is kept.)\n" + "=" * 66)
     for i, candidate in enumerate(candidates, 1):
+      try:
         print(f"\n[{i}/{len(candidates)}]  outcome: {candidate['outcome'].upper()}")
         print(f"  utterance      : {candidate.get('utterance')}")
         print(f"  conflicts with : {candidate.get('conflicts_with')}")
         print(f"  source         : {candidate.get('source')} "
               f"({candidate.get('authority')})")
+        if candidate.get("suppressed_by_budget_count"):
+            print(f"  NOTE           : refused by the DR-042 budget on "
+                  f"{candidate['suppressed_by_budget_count']} opportunity(ies) "
+                  f"before this outcome")
         if candidate["outcome"] == "spoken":
             if candidate["batched"]:
                 print(f"  BATCHED with {len(candidate['spoken_with'])} other(s) "
@@ -191,7 +222,11 @@ def score(candidates: list[dict]) -> list[dict]:
         else:
             # No utterance exists, so the question is not askable.
             candidate["worth_hearing"] = None
-    return candidates
+      except _ScoringInterrupted:
+        print(f"\n\nStopped early at candidate {i} of {len(candidates)}. "
+              f"Keeping the {i - 1} already scored.")
+        return candidates, False
+    return candidates, True
 
 
 def summarise(candidates: list[dict], stats: dict) -> dict:
@@ -202,6 +237,11 @@ def summarise(candidates: list[dict], stats: dict) -> dict:
         "candidates_suppressed_by_budget": sum(
             1 for c in candidates if c["outcome"] == "suppressed_by_budget"),
         "candidates_expired": sum(1 for c in candidates if c["outcome"] == "expired"),
+        # Counts candidates the ceiling refused AT LEAST ONCE, whatever
+        # became of them afterwards -- a candidate refused and then expired
+        # is evidence about DR-042's constants either way.
+        "candidates_refused_by_budget_at_least_once": sum(
+            1 for c in candidates if c.get("suppressed_by_budget_count")),
         "should_have_spoken_yes": sum(
             1 for c in candidates if c.get("should_have_spoken") == "yes"),
         "should_have_spoken_no": sum(
@@ -263,8 +303,11 @@ def main() -> int:
             print(json.dumps(candidate, indent=2))
         return 0
 
-    scored = score(candidates)
+    scored, completed = score(candidates)
     summary = summarise(scored, stats)
+    summary["scoring_completed"] = completed
+    summary["candidates_scored"] = sum(
+        1 for c in scored if c.get("should_have_spoken") is not None)
 
     out = {
         "schema": "jester-1.0/evaluation-set/v1",
