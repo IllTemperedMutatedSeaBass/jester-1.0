@@ -2197,3 +2197,259 @@ becomes theoretical and only (b) need ever be built.
 
 This entry is an append; no prior entry above is edited, per the append-only rule for
 this file.
+
+## 2026-09-10 — Thread 1.0.16: C3 rulings before the C3 build
+
+> **A note on filing, recorded once here.** DR-042 through DR-045 are the first
+> entries in this repo to carry matching `docs/decisions/DR-0NN-<slug>.md` files,
+> per `jesterai/DR_TEMPLATE.md`'s filing convention ("File the DR in the stream
+> repo (`docs/decisions/DR-00N-<slug>.md`) and add a dated one-paragraph summary
+> to that stream's DECISIONS.md pointing at it"). DR-017 through DR-041 have no
+> such files and are not retrofitted — they are append-only and stand as filed.
+> The entries below follow this file's established house style (a substantial
+> dated entry) rather than a one-paragraph stub, and each points at its DR file;
+> the DR file carries the full Options/Alternatives/Review-trigger structure.
+
+### DR-042 — THE INTERJECTION BUDGET AND THE BATCHING RULE: AT MOST TWICE PER ROLLING TEN MINUTES, AND BATCHING IS PART OF THE RULE RATHER THAN AN OPTIMISATION. THE CONSTANTS ARE PROVISIONAL AND ASSERTED, NOT DERIVED (2026-09-10)
+
+Full record: `docs/decisions/DR-042-interjection-budget-and-batching.md`.
+
+**The situation forcing it.** C3 is a stub that returns `speak_now`
+unconditionally and is not started by `ops/run_d0.sh`. This thread builds the
+real gate, and WAYS_OF_WORKING §7 requires the bar to exist before the build.
+
+**RULING (a) — a hard ceiling.** C3 may interject **at most TWICE per rolling ten
+minutes**. Enforced in C3, tested.
+
+**RULING (b) — BATCHING IS PART OF THE RULE, NOT AN OPTIMISATION.** If more than
+one salient point is outstanding when C3 gets its chance to speak, ALL
+outstanding points are delivered in ONE interjection. C3 must not spend two
+budget slots on points it could have combined. This is an etiquette principle: a
+person with three things to say says them once. It is ruled rather than left to
+an implementer because batching is a property of the data flow, not a filter on
+its output — a decide-and-fire-per-utterance C3 cannot be made to batch later
+without being restructured.
+
+**RULING (c) — THE CONSTANTS ARE PROVISIONAL.** Two-per-ten-minutes is fixed so
+work can proceed against a bar, and is expected to be revised once measured. It
+is **asserted, not derived**: no measurement on this project would yield that
+number rather than one or five. It is a judgement about failure asymmetry — an
+under-speaking system is a recoverable disappointment, an over-speaking one gets
+switched off. Recorded as framing, not as derivation. DR-045 records why no
+derivation was available.
+
+**BUILD CONSEQUENCE (recorded here, built at this thread's Task 5).** Batching
+requires a **PENDING CANDIDATE QUEUE** and a **merge step producing one utterance
+from N candidates** — explicitly not a decide-and-fire-per-utterance design.
+
+**NO PRECISION BAR IS SET, and the omission is deliberate and disclosed.** The
+operator has not ruled on one, so none is invented here. It is carried to
+`BACKLOG.md` with the rationale that is also the sharpest criticism of this
+entry: **a frequency ceiling alone is satisfied perfectly by a system that never
+speaks.** DR-042 bounds how often Jester may speak and says nothing about whether
+what it says is worth hearing. Both halves are needed; only one is filed.
+
+**REVIEW TRIGGER.** Revisit if a scored run shows the ceiling suppressing
+candidates the operator marks "should have spoken: yes" (too tight); or shows
+spoken flags marked "worth hearing: no" at an annoying rate (too loose); or shows
+the queue empty at almost every opportunity, making the batching machinery dead
+weight and pointing at an over-conservative gate upstream. Standing punch-list
+item: the missing precision bar — until it exists this DR can be evaluated as
+implemented, not as correct.
+
+This entry is an append; no prior entry above is edited, per the append-only rule for
+this file.
+
+### DR-043 — THE TIER PARTITION IS REMOVED AS A TRIGGER CONTROL: DR-008 MEASURED A MECHANISM FAILING, NOT A FACT ABOUT THE DOMAIN, AND THE PARTITION FORBIDS THE PRODUCT'S CENTRAL FINDING. LICENSING, AUTHORITY AND PROVENANCE SURVIVE AS METADATA, NOT AS GATES. THIS IS AN ARGUMENT, NOT A MEASUREMENT (2026-09-10)
+
+Full record: `docs/decisions/DR-043-tier-partition-removed-as-trigger-control.md`.
+Written after reading DR-008, DR-009 (both in `jesterai/DECISIONS.md`), DR-029,
+DR-031, DR-034 and DR-035 in full.
+
+**(a) THE PARTITION WAS A NOISE CONTROL FOR A MECHANISM, NOT A FACT ABOUT THE
+DOMAIN.** DR-008's evidence was specific and is not disputed here: similarity
+search over a large, generic, lexically-overlapping corpus always returns a
+nearest-neighbour chunk, which flipped 4 of 6 correctly-Absent records to
+false-positive Partial in 2.x. That is a finding about **RETRIEVAL-AS-TRIGGER** —
+a cosine threshold standing in for a judgement. It was never evidence that
+company documents and standards documents are different KINDS of thing.
+
+**(b) THE PARTITION FORBIDS THE PRODUCT'S CENTRAL FINDING.** Where the value is
+logical connectivity — a delegated-authority matrix says one thing, a regulatory
+obligation says another, and the plan forming in the room sits in the gap — the
+insight **LIVES IN THE JOIN BETWEEN DOCUMENTS**. Tier 1 alone cannot see it; Tier
+2 is forbidden to raise it. The architecture excludes the finding it exists to
+produce.
+
+**(c) RULING.** Retrieval for trigger evaluation runs over **ONE corpus**. The
+tier partition is removed as a control on **TRIGGER AUTHORITY**.
+
+**(d) WHAT SURVIVES, AS METADATA ON EVERY CHUNK, NOT AS A GATE.** **LICENSING** —
+DR-009 stands entirely; standards text is never shipped, chunks carry a licence
+flag, licence-restricted text must not be reproduced in spoken output,
+unaffected by (c). **AUTHORITY** — a company policy binds, a standard is
+advisory; this is a property Jester STATES WHEN IT SPEAKS, not a gate on whether
+it may notice, and every flag must name what it conflicts with and the authority
+weight of that source. **PROVENANCE** — per DR-031, retained on every chunk.
+
+**HONESTY NOTE ON (d), verified in the code, not assumed.** The metadata written
+on every chunk at ingest (`ingest/run.py`) is exactly `source_path`, `tier`,
+`tier_evidence`, `chunk_index`, `embedding_model`, `embedding_model_digest`.
+**There is no licence field and no authority field in the store today.** (d)
+therefore states the required end state, not the built state. What is built this
+thread is authority weight **DERIVED FROM `tier` AT READ TIME** (tier1 → binding,
+tier2a/2b → advisory, unassigned → unlabelled), which is defensible because tier
+is a provenance judgement per DR-031 and authority is what provenance was
+standing in for. A real per-chunk licence flag needs a **re-ingest**; carried to
+`BACKLOG.md`. On this box the licence exposure is currently nil **by accident,
+not by design** — DR-034 tiered zero documents into 2a/2b, so there is no
+standards text in the store to leak.
+
+**(e) THE NOISE CONTROL IS RELOCATED, NOT DELETED.** It moves from "which
+documents may fire" to (i) a **REASONING GATE** deciding whether a contradiction
+is worth raising, and (ii) DR-042's rate ceiling as a hard backstop. **RECORDED
+HONESTLY: THIS IS AN ARGUMENT, NOT A MEASUREMENT.** DR-008's false positives were
+measured — 4 of 6 records flipped. This swap's adequacy is not measured at all.
+**DR-045's scored run is the first evidence either way.** A reader who concludes
+that this entry trades one measured control for two unmeasured ones has read it
+correctly; the only counter is that the measured control forbids the product, and
+that is not itself evidence that the replacement works.
+
+**(f) DR-035'S INTENT GATE IS A CONSEQUENCE OF THIS RULING, NOT A SEPARATE
+DECISION.** DR-035 restricted the unassigned collection to
+`intent="question_answering"` and asserts the refusal of a trigger caller by
+test. That gate exists ONLY to enforce the partition (c) removes; leaving it in
+place would be an inconsistency, not a safeguard. It is amended so a trigger-side
+caller may read the unified corpus, and the existing test is **REWRITTEN to
+assert the new rule, not deleted** — a removed assertion leaves no record that
+the rule changed. A **NEW intent name, `conflict_check`**, is used rather than
+reusing `question_answering`. **This is a PREFERENCE, not a necessity**, and its
+reason is that DR-045's scoring must distinguish "a human asked and Jester
+answered" from "Jester decided on its own to look."
+
+**(g) THE 41-OF-46 UNASSIGNED SKEW (DR-034) LARGELY DISSOLVES AS A C3 BLOCKER**
+under (c) — there is no longer a tier the trigger path is confined to. Re-tiering
+becomes ordinary backlog work. **This is not a claim that the skew is harmless:**
+its remaining value is licence and authority labelling, which (d) still needs and
+which (d) currently cannot deliver.
+
+**REVIEW TRIGGER — the named condition that reopens this.** A scored run in which
+flags are dominated by spurious cross-document "conflicts" of the kind DR-008
+measured: candidates whose "conflict" is lexical or topical adjacency with no
+actual logical incompatibility, marked "should have spoken: no" at a rate
+comparable to DR-008's 4-of-6. **If that happens, this ruling is wrong and
+DR-008's instinct was right**, and the partition returns as a trigger control
+rather than being patched with a stricter threshold. Also reopen if the reasoning
+gate almost never returns no-conflict (then (e)'s relocation rests on a control
+that does not exist and only DR-042's ceiling holds, which silence satisfies
+trivially), or if a licence-restricted chunk reaches spoken output.
+
+This entry is an append; no prior entry above is edited, per the append-only rule for
+this file.
+
+### DR-044 — INTERJECTION FORM: STATE THE CONFLICT, THEN STOP. NO RESOLUTION IS PROPOSED UNLESS A HUMAN ASKS, WHICH IS THE EXISTING QUESTION-ANSWERING PATH (2026-09-10)
+
+Full record:
+`docs/decisions/DR-044-interjection-form-state-the-conflict-then-stop.md`.
+
+**RULING.** When Jester interjects it **STATES THE CONFLICT AND STOPS**. It names
+what was said, what it conflicts with, and the authority of that source. It does
+**NOT** propose a resolution. A resolution may be given only if a human then
+**ASKS** — which is the existing question-answering path (DR-035) and **requires
+no new mechanism**.
+
+**Reasoning.** Stating a conflict **requires a citation and is checkable**: the
+claim has a referent in the corpus and a human can verify it in seconds, so
+Jester is straightforwardly right or wrong. **Proposing a fix invites the model
+to invent one, and confabulation risk concentrates there** — the conflict is
+retrieved, the resolution is not, and DR-043(e) has already placed the project's
+noise control on a reasoning gate whose named failure mode is over-agreeable
+invention; extending that model's remit to recommendations compounds the exposure
+rather than containing it. This is also **the cheaper and more honest half, and
+the harder-to-annoy-with half**: short (which matters against DR-017's 8 s kill
+switch), claiming exactly what the system can support, and an observation invites
+a response where a recommendation demands one. The asymmetry that settles it: when
+Jester is right the resolution is usually obvious to the humans anyway; when
+Jester is wrong, a proposed resolution turns a recoverable false positive into an
+argument.
+
+**BUILD CONSEQUENCE — C4's text filter, fixed this session, not deferred.**
+`c4_speech/text_filter.py` strips emoji, asterisked stage directions,
+parenthetical narration and Gemma control markers but **does NOT strip bracketed
+citations**. DR-038 recorded this as an open `BACKLOG.md` item after a run that
+happened to emit no `[source #N]` markers — "one clean run, not a fix." This
+ruling makes cited flags **routine rather than rare**, since
+`retrieval.format_evidence` renders every chunk as `[<source_path> #<index>]`.
+**The filter is fixed in this session** (Task 3). The two halves are coupled and
+must be read together: the bracket marker is stripped from spoken text, AND the
+source reaches speech as **prose** via the candidate's structured
+`source`/`authority` fields. Stripping brackets without the structured fields
+would remove the citation this entry exists to require.
+
+**REVIEW TRIGGER.** Revisit if a scored run shows conflict statements marked
+"worth hearing: no" primarily because they are **unactionable** as distinct from
+**wrong** — that distinction must be visible in the scoring or the reopening is
+unsupported; or if the question-answering follow-up path is never used after an
+interjection, which would falsify the assumption that asking is the natural next
+move; or if a licence-restricted source is named aloud.
+
+This entry is an append; no prior entry above is edited, per the append-only rule for
+this file.
+
+### DR-045 — THE MISSING EVALUATION SET: THIS PROJECT HAS NO LABELLED EVALUATION DATA, AND THAT ABSENCE IS WHY THE FIRE-RATE BAR HAS BEEN DEFERRED SINCE DR-029, WHY DR-042'S CONSTANTS ARE ASSERTED, AND WHY DR-043 CAN ONLY BE SETTLED BY MEASUREMENT. THE SCORED SPOKEN RUN IS THE FIRST EVALUATION SET (2026-09-10)
+
+Full record: `docs/decisions/DR-045-the-missing-evaluation-set.md`.
+
+**THE FINDING, recorded as first-class rather than as a caveat on other
+entries.** This project has **no labelled evaluation data** — not one example of
+"utterance in a room, given this corpus: should Jester have spoken, and was what
+it said worth hearing?" What exists is not that: DR-034's five representative
+queries were explicitly "a searchability sanity check, not a quality evaluation";
+DR-038's Bar B measured latency, which is not quality; and DR-008's 4-of-6 is
+**borrowed from 2.x** — a different corpus, a different task (record
+classification), a different mechanism.
+
+**WHY IT IS FILED AS A DECISION.** The absence has silently shaped four threads.
+**It is why the fire-rate bar has been deferred since DR-029** — DR-029 named the
+relocated control ("criteria SPECIFICITY and COUNT"), said it was testable by a
+fire-rate measurement, and correctly fixed no bar under §7, because there was
+nothing to fix one against. **It is why DR-042's constants had to be asserted
+rather than derived.** **It is why DR-043 can only be settled by measurement** —
+it removes a measured control and replaces it with an argued one, and an argument
+cannot resolve that. **No comparison — partitioned vs unified, model size, gate
+design — is decidable without it**; every such comparison today would be settled
+by whoever argues most persuasively, which is not a method.
+
+**RULING.** The scored spoken run at this thread's Task 7 is the **FIRST
+EVALUATION SET** and must be **captured as reusable data, not just read once and
+discarded**: every candidate's full lifecycle logged structurally (raised,
+queued, merged, spoken, suppressed-by-budget, expired) with the utterance, the
+retrieved source and timestamps; a replay CLI for the operator to mark *should
+have spoken* and, where spoken, *was it worth hearing*; and a durable scored file
+under the run directory. That file is the evaluation set.
+
+**ITS LIMITS, NAMED.** One run's candidates is a **tiny** set — a single meeting,
+a single corpus, a single scorer. It will not support a precision figure with a
+confidence interval worth quoting. What it supports is the first evidence that
+exists at all, and, because it is data rather than an impression, the first thing
+a second run can be compared against. **This entry sets no pass bar**: §7 fixes
+bars before experiments and this thread has no basis to fix one. The numeric
+precision bar is DR-042's open `BACKLOG.md` item and should be fixed **before the
+second scored run**, using the first to establish what range is achievable.
+
+**A retention tension, flagged not resolved.** `logs/` is gitignored, so the
+scored file is machine-local. Any decision to retain evaluation data across
+machines must be read against DR-030's isolation posture, since the file contains
+verbatim meeting utterances — the same governance tension DR-041 raised for its
+option (d). Operator's call.
+
+**REVIEW TRIGGER.** Revisit if the first scored run yields too few candidates to
+read anything from (the response is a longer run or a conflict-rich agenda, **not
+a looser gate** — loosening the gate to generate evaluation data would corrupt
+the evaluation); or if scoring proves unreliable because "should have spoken"
+cannot be answered consistently, meaning the question needs sharpening before
+more runs are scored against it; or if a real labelled corpus becomes available
+from another source, superseding this ruling rather than extending it.
+
+This entry is an append; no prior entry above is edited, per the append-only rule for
+this file.
