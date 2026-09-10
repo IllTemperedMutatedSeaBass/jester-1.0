@@ -2,6 +2,86 @@
 
 ## Open
 
+- **NO PRECISION / HIT-RATE BAR EXISTS FOR C3, AND DR-042 IS NOT
+  EVALUABLE WITHOUT ONE (thread 1.0.16, DR-042, DR-045).** DR-042 fixed a
+  frequency CEILING — at most 2 interjections per rolling 10 minutes — and
+  deliberately set no precision bar, because the operator has not ruled on
+  one. The rationale is also the sharpest criticism of DR-042 itself: **a
+  frequency ceiling alone is satisfied perfectly by a system that never
+  speaks.** DR-042 bounds how OFTEN Jester may speak and says nothing about
+  whether what it says is worth hearing. Both halves are needed and only
+  one is filed. Per WAYS_OF_WORKING §7 the bar must be fixed BEFORE the
+  experiment it judges — so it should be set **before the SECOND scored
+  run**, using the first (DR-045) to establish what range is achievable.
+  Until then C3 can be reported as implemented and bounded, never as
+  correct.
+
+- **THE PER-CHUNK LICENCE FLAG DOES NOT EXIST AND NEEDS A RE-INGEST
+  (thread 1.0.16, DR-043(d)).** DR-043(d) requires every chunk to carry a
+  licence flag so licence-restricted text is never reproduced in spoken
+  output (DR-009 stands entirely). Verified against
+  `c2_reason/src/c2_reason/ingest/run.py`: the metadata actually written is
+  `source_path`, `tier`, `tier_evidence`, `chunk_index`, `embedding_model`,
+  `embedding_model_digest` — **there is no licence field and no authority
+  field.** What is built is authority weight DERIVED FROM `tier` at read
+  time (`retrieval.AUTHORITY_BY_PATH`), which is defensible because DR-031
+  made tier a provenance/authority judgement. Licence is NOT derivable.
+  **On this box the exposure is currently nil BY ACCIDENT, not by design** —
+  DR-034 tiered zero documents into tier2a/2b, so there is no standards
+  text in the store to leak. The moment any is ingested, this becomes
+  urgent: DR-043's review trigger names a licence-restricted chunk reaching
+  spoken output as a condition that reopens the ruling.
+
+- **RE-TIERING THE 41 UNASSIGNED DOCUMENTS — DEMOTED, NOT CLOSED (thread
+  1.0.16, DR-043(g)).** DR-034 tiered 5 of 46 documents TIER1 and 41
+  UNASSIGNED, and that skew was a C3 blocker while DR-008's partition
+  confined the trigger path to Tier 1. DR-043(c) removes the partition as a
+  trigger control, so the skew **largely dissolves as a blocker** and
+  re-tiering becomes ordinary backlog work. **It is NOT harmless.** Its
+  remaining value is exactly what DR-043(d) still needs and cannot deliver:
+  licence and authority labelling. An unassigned chunk is reported as
+  authority "unlabelled" — truthful, and weaker than it should be, since
+  DR-044 requires Jester to name the authority of what it conflicts with.
+  Replacing `tiering.py`'s first-pass keyword heuristic is carried
+  separately below.
+
+- **C3's HAND-UP LIGHT IS A STUB — NO GPIO (thread 1.0.16, DR-006).**
+  `c3_router.main._HandUp` emits a `hand_up_raised` structured event
+  carrying `gpio_stub: true` and nothing physical happens. DR-006
+  classifies the signal as the PRIMARY latency mitigation rather than a UX
+  nicety, so this gap is load-bearing, not cosmetic.
+
+- **DR-006's LATENCY MITIGATION IS STRUCTURALLY PRESENT BUT NOT YET
+  REALISED — THE D0 LOOP IS SEQUENTIAL (thread 1.0.16).** DR-006 makes the
+  hand-up load-bearing because "C2 runs in the background while the humans
+  finish their sentence" — the WAIT is what buys back the latency. At D0
+  C5's loop is strictly sequential and prompt-driven, so `/observe` BLOCKS
+  C5 while C3 calls C2, and there is no concurrent conversation for that
+  work to hide behind. What is built is the correct STRUCTURE — queue,
+  hand-up, deferred speaking, batching — which is what makes the mitigation
+  possible. **Making the loop concurrent (C1 capturing the next utterance
+  while C3/C2 work on the last) is a C5 change and is the step that
+  actually realises DR-006.** Until then, the C3 call adds wall-clock time
+  between turns; it is outside T_ttfa, but it is not free.
+
+- **C1 SHOULD REPORT THE REAL INTER-UTTERANCE GAP TO C3 (thread 1.0.16).**
+  C3's opportunity test is `gap_s >= C3_VAD_GAP_S`, and C5 currently sends
+  `C5_C3_ASSUMED_GAP_S` — a CONFIGURED STAND-IN, not a measurement. C1's
+  endpointer is the only component that knows the true silence duration.
+  Related to, and cheaply done alongside, the speech-onset timestamp above.
+
+- **C3's CONFLICT-CHECK REPLY WAS UNPARSEABLE ON 1 OF 3 LIVE TURNS (thread
+  1.0.16 smoke run).** `conflict_check_done` recorded `rejected_reason:
+  "reply matched neither form"` on one of three turns (eval_count 15). The
+  parse failure resolves to NO CONFLICT, which is the safe direction and is
+  deliberate — but a third of replies not matching either form is a real
+  rate, and it makes the gate quieter than its prompt intends. Another turn
+  returned a conflict at eval_count 103 against a 120-token cap, i.e. close
+  to truncation. Both point at the same fix: tighten the reply format or
+  raise `C2_CONFLICT_MAX_TOKENS`. **Do not "fix" this by loosening the
+  parse** — accepting a malformed positive is how a fabricated source gets
+  spoken.
+
 - **C1 MUST LOG A SPEECH-ONSET TIMESTAMP. One line of code; it converts the
   central input of the whole context-management design from assumption to
   measurement (thread 1.0.15, DR-040/DR-041).** DR-036's meeting-ceiling
@@ -343,7 +423,35 @@
   `HEATHEN_TTS_CACHE_DIR` runtime-fetch collision (recorded box-side in
   `jesterai/box/MULTI-STREAM.md` §9).
 
+## What the next session must do
+
+1. **Run and score the spoken run (DR-045).** The 20-turn run at Task 7 was
+   prepared and handed over, not driven. Until it is run and scored with
+   `ops/score_run.py`, DR-043 stands on argument alone and its review
+   trigger cannot be evaluated. **This is the highest-value item on this
+   list** — three separate rulings (DR-042's constants, DR-043's swap,
+   DR-029's deferred fire-rate bar) are all waiting on the same data.
+2. **Re-measure Bar B with the C3 stage broken out**, and record whether
+   DR-017's 8 s kill switch fires. If it fires, report it as a result and a
+   decision point — do not optimise it away.
+3. **Fix the precision bar** before a second scored run, per §7.
+4. **C1 speech-onset timestamp** (still DR-041's first item) and the real
+   inter-utterance gap to C3 — one change, two open items.
+5. Only then: the licence-flag re-ingest, or making C5's loop concurrent.
+
 ## Done
+
+- **CLOSED (thread 1.0.16): C4's text filter did not strip bracketed
+  citations.** Carried from DR-038 as a real but unrealised gap — "one
+  clean run, not a fix". DR-044 made cited flags routine rather than rare,
+  so `c4_speech/text_filter.py` now strips `[<source_path> #<index>]`
+  markers, source-path-shaped brackets and `format_evidence` section
+  headers, bounded to citation SHAPES so ordinary bracketed prose ("[sic]")
+  survives. **The citation is not lost:** C3's `policy.merge` renders it as
+  PROSE from the candidate's structured `source`/`authority` fields, and a
+  test asserts that prose survives the filter. The two halves are coupled —
+  stripping markers without the prose rendering would delete the very
+  citation DR-044 exists to require.
 
 - Walking-skeleton code written: five packages, HTTP between every hop,
   env-driven config, structured JSON logging at every stage boundary,

@@ -2290,3 +2290,335 @@ at the new window size.
 
 This entry is an append; no prior entry above is edited, per the append-only rule for
 this file.
+
+## STOP REPORT — Thread 1.0.16 (C3 rulings, then the C3 build) — 2026-09-10
+
+**Operator claim — model and effort.** This session ran as **Claude Opus 5**
+(exact model id `claude-opus-5`), thinking on. The prompt specified Sonnet 5;
+the session was provisioned on Opus 5 and I did not have the ability to change
+it from inside the session. Recorded as a divergence from the prompt rather
+than passed over, since the prompt asked for the model actually running to be
+declared as an operator claim.
+
+**Machine authority.** Verified before any work: `hostname` `jesterai`,
+`whoami` `jester`, `/home/jester/jester-1.0` present, `ollama list` confirming
+the pinned tags. The shell's working directory moved between `/home/jester` and
+the repo during the session; the launch directory was `/home/jester` as stated.
+Neither stop condition applied and nothing was deferred. `mount | grep jester`
+returned nothing — `/mnt/jester_in` was neither mounted, read, nor written.
+
+**Branch authority.** No harness branch assigned; worked on `main` throughout.
+
+### Task 0 — records verified before numbers were assigned
+
+Both context claims in the prompt were checked rather than assumed, and **both
+are correct**. `origin/main` tip was
+224155e4128728a398e484fd09c6895ab75ad369, read after an independent `git fetch
+origin` and cross-checked with `git ls-remote origin refs/heads/main`, which
+returned the same value. The highest DR was **DR-041**, in `jester-1.0`. No
+divergence to report.
+
+**Shared DR series checked across BOTH repos, per DR-016.** `jester-1.0`'s
+`DECISIONS.md` carries `### DR-` headings from DR-017 to DR-041.
+`jesterai/DECISIONS.md` carries its own numbered headings DR-002 through
+**DR-016** and no higher — the DR-017/DR-018/DR-021/DR-022/DR-025/DR-026/
+DR-029/DR-030/DR-032 tokens that also appear in that file are cross-references
+to this repo's entries, not entries of its own. `jester-2.1` has no
+`DECISIONS.md`. Highest across both is therefore DR-041, and this thread
+assigned **DR-042 through DR-045**. **Box/portfolio consequence: none.** No
+DR filed here changes anything about the box, the dual-duty arrangement, or the
+portfolio; nothing needed filing in `jesterai`.
+
+**DISAGREEMENT WITH THE PROMPT, DISCLOSED — the read-only scope conflicts with
+two of its own instructions.** The prompt scoped `jester-2.1` and `jesterai` to
+"READ-ONLY HEAD checks this session — do not read their file contents." Three
+other instructions in the same prompt cannot be satisfied under that scope:
+(1) Task 2 says "Read DR-008, DR-009 … in full", and DR-006, DR-008 and DR-009
+live in `jesterai/DECISIONS.md`, not here — CLAUDE.md records that DR-002
+through DR-015 are frozen there; (2) the STOP-report requirement to check the
+shared DR series across BOTH repos, per DR-016; (3) Task 8's requirement to
+file `docs/decisions/` files "per DR_TEMPLATE.md", which exists only at
+`jesterai/DR_TEMPLATE.md`. **Resolved the way DR-034 resolved the identical
+conflict** — in favour of the more specific, later-cited requirement, and
+flagged rather than silently. This session read exactly four things from
+`jesterai`: `DECISIONS.md` (the DR-number listing, and lines 142–215 covering
+DR-006 through DR-009), `DR_TEMPLATE.md`, `WAYS_OF_WORKING.md` §7, and a
+directory listing. Nothing was read from `jester-2.1` at all. **No write was
+made to either repo** — proof below.
+
+**A second, smaller divergence, recorded because it changes a convention.**
+`docs/decisions/` did not exist in this repo and DR-017 through DR-041 have no
+DR files — the convention has been DECISIONS.md entries only. DR-042 through
+DR-045 are the **first** entries here to carry `docs/decisions/` files, per
+DR_TEMPLATE.md's filing rule. Prior entries are **not** retrofitted; they are
+append-only and stand as filed. A note recording this is at the head of this
+thread's DECISIONS.md section.
+
+### Tasks 1–4 — the rulings, committed BEFORE any gate code
+
+WAYS_OF_WORKING §7 requires the bar to exist before the build, and the prompt
+required that to be satisfied by sequence within one session. It was:
+DR-042 through DR-045 were written, committed and **pushed** as their own
+commit, and **no C3 file was created until that push had completed**. The two
+commits are separate and in that order in the history.
+
+**DR-042 — the interjection budget and the batching rule.** At most **twice per
+rolling ten minutes**, a hard ceiling. **Batching ruled as part of the rule,
+not an optimisation**: everything outstanding when C3 gets its chance is
+delivered in one interjection, on the etiquette principle that a person with
+three things to say says them once. Ruled rather than left to an implementer
+because batching is a property of the data flow, not a filter on its output — a
+decide-and-fire-per-utterance C3 cannot be made to batch later without being
+restructured. **The constants are recorded as PROVISIONAL and ASSERTED, not
+derived**: nothing on this project would yield "twice" rather than once or
+five, and the number is a judgement about failure asymmetry (an under-speaking
+system is a recoverable disappointment; an over-speaking one gets switched
+off). **No precision bar is set** — the operator has not ruled on one, so none
+was invented. It is carried to `BACKLOG.md` with the rationale that is also the
+sharpest criticism of DR-042 itself: **a frequency ceiling alone is satisfied
+perfectly by a system that never speaks.**
+
+**DR-043 — the tier partition is removed as a trigger control.** Written after
+reading DR-008, DR-009, DR-029, DR-031, DR-034 and DR-035 in full. The ruling
+is recorded in the DR and in DECISIONS.md; the parts worth surfacing here are
+the two honesty notes, because both cut against the ruling.
+
+**First: this is an argument, not a measurement, and the entry says so in those
+words.** DR-008's false positives were MEASURED — 4 of 6 correctly-Absent
+records flipped in 2.x. DR-043's replacement controls — a reasoning gate plus
+DR-042's ceiling — are asserted to be adequate with no evidence whatsoever.
+DR-045's scored run is the first evidence either way.
+
+**Second: DR-043(d)'s licence flag does not exist.** The DR requires every
+chunk to carry one. Verified in `ingest/run.py` rather than assumed: the
+metadata actually written is `source_path`, `tier`, `tier_evidence`,
+`chunk_index`, `embedding_model`, `embedding_model_digest` — **no licence field
+and no authority field.** So (d) states the required end state, not the built
+state. What is built is authority weight DERIVED FROM `tier` at read time,
+which is defensible because DR-031 already made tier a provenance/authority
+judgement. Licence is not derivable and needs a re-ingest; carried to
+`BACKLOG.md`. **On this box the licence exposure is nil BY ACCIDENT, not by
+design** — DR-034 tiered zero documents into tier2a/2b, so there is no
+standards text in the store to leak. I would not have written DR-043(d) as
+"chunks carry a licence flag" without this note; the note is the difference
+between the DR being true and being aspirational.
+
+**DR-044 — state the conflict, then stop.** No resolution unless a human asks,
+which is the existing question-answering path and needs no new mechanism.
+Reasoning recorded: a stated conflict has a referent and is checkable; a
+proposed fix is generated from nothing and is where confabulation concentrates,
+which compounds rather than contains DR-043(e)'s exposure. Also recorded as
+the cheaper and more honest half, and the harder-to-annoy-with half.
+
+**DR-045 — the missing evaluation set.** Filed as a first-class finding: this
+project has **no labelled evaluation data**, and that absence is why the
+fire-rate bar has been deferred since DR-029, why DR-042's constants had to be
+asserted, and why DR-043 can only be settled by measurement. The scored spoken
+run is ruled to be the first evaluation set and must be captured as reusable
+data.
+
+### Task 5 — C3 built
+
+C3 was a stub (`decide()` returning `speak_now` unconditionally, not started by
+`run_d0.sh`). It is now the real gate and is in the D0 path.
+
+**`c3_router/policy.py` (new)** — `Budget` (DR-042(a), a rolling-window
+counter), `PendingQueue` (DR-042(b), with `drain()` deliberately
+all-or-nothing so a partial batch is not expressible), `merge()` (DR-044's
+form), and TTL expiry. **Time is injected into every method, never read from
+the clock**, so the 600 s window and 300 s TTL boundaries are asserted exactly
+rather than approximately. **NO MODEL RUNS IN C3** — every decision is
+arithmetic. That is the point of the split: DR-043(e) makes the ceiling the
+hard backstop, and a backstop that can be talked out of its answer is not one.
+
+**`c3_router/main.py` (rewritten)** — `POST /observe`, plus `/state` for
+introspection. A merged interjection costs **one** budget slot, not one per
+candidate; charging per candidate would make batching pointless.
+
+**Etiquette (DR-006), and an honest limit.** The hand-up is raised on a
+candidate and **the light is a STUB** — a structured event carrying
+`gpio_stub: true`, and nothing physical. A candidate raised in a call is not
+spoken in that same call; an invitation bypasses the wait but never the budget.
+**But DR-006's actual latency mitigation is not yet realised, and I want that
+stated plainly rather than left to be discovered.** DR-006's saving comes from
+C2 working *during* the wait. At D0 C5's loop is strictly sequential and
+prompt-driven, so `/observe` blocks C5 while C3 calls C2 and there is no
+concurrent conversation for that work to hide behind. What is built is the
+correct STRUCTURE, which is what makes the mitigation possible; realising it is
+a C5 concurrency change, carried to `BACKLOG.md`. This module should not be
+read as evidence that the latency saving has been obtained.
+
+**Staleness (Task 5(f)): 300 s, configurable.** Justification, one line: a
+conflict about what the room was discussing five minutes ago is no longer about
+what the room is discussing. Chosen as **half** the budget window deliberately,
+so a candidate cannot sit through a whole window and then spend an interjection
+on the oldest thing in the queue.
+
+**Why the judgement lives at C2 — the three reasons, and the correction.**
+Recorded in `c2_reason/conflict.py`'s docstring so they survive where the code
+is read. (1) **Retrieval machinery**: the Chroma client, collection handling
+and DR-033's digest verification all live in C2; a model in C3 would need a
+duplicate copy on the path where a silent failure is hardest to detect.
+(2) **Model-swap risk, stated as a risk and not a measurement**: Ollama reloads
+on a model change, observed in 1.0.15; alternating models per turn plausibly
+costs a reload, and DR-017's kill switch is 8 s. **Nobody has measured
+two-model alternation on this box** — a cheap risk to avoid, not a proven
+blocker. (3) **The correction, recorded so the bad reasoning is not inherited**:
+an earlier draft justified this by claiming the UMA carve would not hold a
+second resident model. **That claim is wrong and is not repeated in any DR.**
+SEED §2 describes C3 as a tiny model that runs anywhere, and this box already
+runs a second model — `ollama list` confirms `nomic-embed-text:latest` resident
+for every retrieval call. No footprint measurement supports the carve claim.
+(4) **Reversibility**: what would make a C3-resident model feasible is giving
+C3 its own retrieval client — a known cost, not a rewrite, with a review
+trigger recorded.
+
+**C2 changes.** `INTENT_CONFLICT_CHECK` and DR-043(c)'s unified-corpus path:
+all four collections queried, no Tier-1-must-fire-first condition. **The
+`question_answering` path is unchanged**, and a test asserts that, so DR-043
+cannot be read as having quietly widened more than it ruled. `/conflict_check`
+is a **separate endpoint from `/respond`**, for two reasons that are easy to
+undo by accident and are recorded in the handler: `prompt_builder` is
+process-level and accumulating, so appending to it here would put lines nobody
+said into the meeting transcript and change the prompt every Bar B figure was
+measured against; and `/respond`'s stage events *are* Bar B's decomposition, so
+this endpoint emits its own event names and the Bar B sample stays exactly the
+turns C5 drove. **Asserted by the smoke test**, not just intended.
+
+**The prompt is biased toward NO CONFLICT, and the reason is recorded**: the
+known failure of an instruction-tuned model asked "is there a tension here?" is
+over-agreeable invention, and DR-043(e) puts the whole relocated noise control
+on this gate. **Authority is never generated by the model** — it is looked up
+from the retrieved chunk's tier metadata, and **a source the model names that
+matches no retrieved chunk is REJECTED**, because DR-044's entire argument is
+that a stated conflict is checkable and a conflict against a document that was
+never retrieved is not.
+
+**DR-035's test was REWRITTEN, not deleted** (DR-043(f)), plus a new test that
+an unknown intent still fails loudly — DR-043(f) widens which intents are
+accepted, it does not remove the refusal.
+
+### Task 3's build consequence — the C4 filter is FIXED, not deferred
+
+`c4_speech/text_filter.py` now strips `[<source_path> #<index>]` markers,
+source-path-shaped brackets, and `format_evidence` section headers. DR-038
+carried this as a real but unrealised gap ("one clean run, not a fix"); DR-044
+makes cited flags routine, so it is closed. **The two halves are coupled and a
+test asserts it**: the strip is bounded to citation SHAPES so ordinary
+bracketed prose ("[sic]", "[see chart]") survives, and C3's `merge()` renders
+the citation as PROSE from structured fields ("per board-minutes.pptx, which is
+binding company policy"), which the filter leaves untouched. Stripping markers
+*without* the prose rendering would have deleted the very citation DR-044
+exists to require.
+
+### Task 6 — scoring harness
+
+`ops/score_run.py` reconstructs each candidate's full lifecycle from the
+structured events, keyed on `candidate_id` so a candidate raised on turn 3 and
+spoken on turn 7 is ONE row rather than two. It asks *should have spoken* for
+**every** candidate — including ones suppressed by budget or expired, since
+those are the evidence about DR-042's constants — and *was it worth hearing*
+only where Jester actually spoke, because there is no utterance to judge
+otherwise. Where the answer is no, it offers **wrong** vs **unactionable**,
+because DR-044's review trigger is explicitly unsupported unless those are
+distinguishable. Output is `scored_candidates.json` in the run directory.
+**It computes no precision figure and asserts no pass bar** — §7 fixes bars
+before experiments and DR-045 sets none for the first run.
+
+### Task 7 — smoke test PASSED; spoken run PREPARED AND HANDED OVER, NOT RUN
+
+`ops/smoke_c3.py`, non-interactive, two parts. **Part A (policy, C2 stubbed,
+time injected) — all assertions passed**: no-conflict stays silent; a candidate
+is queued with the hand up and **not spoken on arrival**; **two queued
+candidates produce ONE interjection carrying both and cost ONE budget slot**; a
+third interjection inside the window is **refused** despite an opportunity and
+a queued candidate; the ceiling lifts past 600 s; a stale candidate **expires**
+before the opportunity arrives and spends no budget; an invitation is an
+opportunity but does not create budget. C2 is stubbed deliberately — with a
+live model these assertions would depend on whether the model happened to find
+a conflict, which is not a test of the policy.
+
+**Part B (live path, real C2, real store, real model) — passed.** All four
+collections queried (`['tier1','tier2a','tier2b','unassigned']`), confirming
+DR-043(c) on the live path; `conflict_check` emits its own stage events and
+**does not** emit `/respond`'s Bar B events. Three turns: turn 1 returned a
+conflict against a TIER1 document with authority `binding` in 7.84 s; turn 2
+returned **no conflict** in 3.99 s; turn 3 returned no conflict in 2.58 s.
+
+**Three observations from Part B that are results, not decoration.** (1) The
+gate declining twice out of three is the *desired* direction and is weak
+evidence that the no-conflict bias is doing something — but three turns is not
+evidence of a rate. (2) **Turn 3's no-conflict was a PARSE REJECTION**
+(`rejected_reason: "reply matched neither form"`, eval_count 15), not a
+judgement. It resolves to silence, which is the safe direction and is
+deliberate, but one unparseable reply in three is a real rate and it makes the
+gate quieter than its prompt intends. (3) Turn 1 used 103 of a 120-token cap —
+close to truncation, and a truncated SOURCE line becomes a rejected conflict.
+Both are carried to `BACKLOG.md` with the explicit warning **not** to "fix"
+them by loosening the parse: accepting a malformed positive is how a fabricated
+source gets spoken.
+
+**Test suites: 74 passed** — c2_reason 24, c3_router 25, c4_speech 21,
+c5_orchestrator 4.
+
+**THE SPOKEN RUN WAS NOT DRIVEN AND NO MONITOR WAS STARTED**, per instruction.
+The exact command is in the handover block below.
+
+**Bar B must be re-measured with the C3 stage broken out**, and this thread did
+not do it. One thing to know before that measurement is read: **the C3 call is
+made AFTER playback, so it is outside T_ttfa for its turn and
+`bar_b_harness._PARTITION_STAGES` gains no member.** What it adds is
+wall-clock time *between* turns, because `/observe` blocks. So a Bar B figure
+from this build should be comparable to 1.0.14's 4.035 s / 4.763 s at the
+T_ttfa level, while the run as a whole will feel slower. **DR-017's 8 s kill
+switch applies. If it fires, report it as a result and a decision point — do
+not optimise it away.**
+
+### Disagreement with the prompt on DR-043, stated as asked
+
+DR-043 was filed exactly as ruled, because it is the operator's call. I do not
+think it is wrong, and I think its central argument — (b), that the partition
+forbids the join the product exists to find — is correct and is the strongest
+thing in the entry. But the prompt's own framing of (e) understates the trade,
+and the sharper version of the objection is this: **DR-043 replaces one
+MEASURED control with two controls that are not merely unmeasured but
+individually questionable.** The reasoning gate is an instruction-tuned model
+asked to detect tension, which is the exact over-agreeableness Task 5(a) itself
+names as the known failure mode — the control and its named failure mode are
+the same mechanism. And the rate ceiling is satisfied perfectly by silence, as
+DR-042's own review trigger concedes. So the honest position is not "we swapped
+a measured control for an unmeasured one" but "we swapped a measured control
+for one that may be systematically biased toward firing and one that cannot
+detect firing wrongly at all." The live smoke run gives a small piece of
+counter-evidence — the gate declined two of three — and a small piece of
+supporting evidence for the concern in a different direction, since one of
+those declines was a parse failure rather than a judgement. **DR-043's review
+trigger is the right instrument and it is correctly specified; the point is
+only that it should be treated as live, not as a formality.**
+
+### Untouched-repo proof
+
+`jester-2.1` HEAD was c41dc92fd121dafaae39a50d68e7aa91e73f9756 **before and
+after** this thread's work, with `git status --porcelain` empty on both checks.
+**It was not written, and its file contents were not read at all this thread** —
+no copy-then-diverge was required, so DR-033(c) raised no tension.
+
+`jesterai` HEAD was 605de619019651f53a818b83c848036a91bd72e8 **before and
+after**, `git status --porcelain` empty on both checks. **It was not written.**
+Its files WERE read, narrowly — `DECISIONS.md`, `DR_TEMPLATE.md`,
+`WAYS_OF_WORKING.md` §7 and a directory listing — which is the scope conflict
+disclosed under Task 0 above, resolved on DR-034's precedent and flagged rather
+than silently.
+
+`HeathenS_Talkings`: **stated absence** — no such directory anywhere under
+`/home/jester` (`find -iname '*heathen*'` returned nothing). Unchanged from
+thread 1.0.15's finding.
+
+### Proof-of-push
+
+**Pending.** This entry is committed and pushed first; the commit hashes are
+then read back from `origin` and recorded in an addendum appended below. No
+hash is written into this file before it has been read from the remote — see
+the correction filed in thread 1.0.15, which recorded that this same process
+error had by then occurred twice.
+
