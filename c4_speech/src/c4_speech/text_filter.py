@@ -14,6 +14,13 @@ response when generation is cut short before a stop sequence is reached
 token-cap-truncated prefix of it (e.g. `<end_of_tur`), since DR-020 recorded
 one turn hitting the 40-token cap mid-generation.
 
+DR-044 (thread 1.0.16): also strips BRACKETED CITATION MARKERS of the form
+`[<source_path> #<chunk_index>]`, which `c2_reason.retrieval.format_evidence`
+puts on every retrieved chunk. DR-038 recorded this gap as real but
+unrealised on one clean run; DR-044 makes cited flags routine, so it is
+closed here. The citation itself is NOT lost -- C3 renders it as prose from
+structured fields (see `_CITATION_MARKER_RE`'s comment).
+
 DR-027: also refuses to synthesize text matching C2's own system preamble.
 Reproduced live (thread 1.0.11) that raw-mode generation can, particularly
 after a run of short/repetitive filler turns, fall into copying the
@@ -43,6 +50,37 @@ _EMOJI_RE = re.compile(
 _ASTERISK_STAGE_DIRECTION_RE = re.compile(r"\*[^*\n]+\*")
 _PAREN_NARRATION_RE = re.compile(r"\([^)\n]*\)")
 
+# DR-044 / DR-038's open gap, closed. `c2_reason.retrieval.format_evidence`
+# renders every retrieved chunk as `[<source_path> #<chunk_index>]`, and a
+# model that quotes its evidence can carry that marker straight into the
+# reply. Kokoro would then voice "open bracket board minutes dot pptx hash
+# three close bracket" aloud.
+#
+# DR-038 flagged this against one clean run that emitted no markers -- "one
+# clean run, not a fix" -- and carried it in BACKLOG.md. DR-044 makes cited
+# flags ROUTINE rather than rare, so it is fixed here rather than left.
+#
+# READ THIS BEFORE ASSUMING THE CITATION IS LOST. DR-044 requires Jester to
+# NAME the source it conflicts with. That requirement is met on the OTHER
+# side: C3's `policy.merge` composes the citation as PROSE from the
+# candidate's structured `source`/`authority` fields ("per
+# board-minutes.pptx, which is binding company policy"), which contains no
+# brackets and is not touched by this filter. The two halves are coupled --
+# stripping markers WITHOUT the prose rendering would delete the very
+# citation DR-044 exists to require.
+#
+# Bounded to a single line and to a plausible citation shape rather than
+# `\[.*?\]` across the whole string: a greedy multi-line strip could eat
+# real speech between two unrelated brackets.
+_CITATION_MARKER_RE = re.compile(r"\[[^\]\n]{0,200}?#\s*-?\d+\s*\]")
+# A source-path-shaped bracket with no `#index` (e.g. `[minutes.pptx]`) --
+# a file extension is required so ordinary bracketed prose survives.
+_SOURCE_BRACKET_RE = re.compile(
+    r"\[[^\]\n]{0,200}?\.[A-Za-z0-9]{1,5}(?:\s*#\s*-?\d+)?\s*\]"
+)
+# An evidence section header from `format_evidence` ("-- Company record --").
+_EVIDENCE_HEADER_RE = re.compile(r"^\s*--\s*[^\n-][^\n]*?\s*--\s*$", re.MULTILINE)
+
 # Complete Gemma turn-control markers, plus a token-cap-truncated prefix of
 # one trailing at the very end of the string (generation can be cut off by
 # num_predict before the closing '>' is emitted -- DR-020 turn 18).
@@ -71,8 +109,16 @@ def strip_unspeakable(text: str) -> str:
         return ""
     result = _CONTROL_MARKER_RE.sub("", text)
     result = _TRUNCATED_CONTROL_MARKER_RE.sub("", result)
+    # Citation markers first: a `[source.pptx #3]` marker contains a dot
+    # and digits, and running the narration/emoji passes over it first
+    # would leave a mangled fragment behind rather than removing it whole.
+    result = _EVIDENCE_HEADER_RE.sub("", result)
+    result = _CITATION_MARKER_RE.sub("", result)
+    result = _SOURCE_BRACKET_RE.sub("", result)
     result = _ASTERISK_STAGE_DIRECTION_RE.sub("", result)
     result = _PAREN_NARRATION_RE.sub("", result)
     result = _EMOJI_RE.sub("", result)
     result = _WHITESPACE_RE.sub(" ", result)
+    # A stripped marker can leave " ," or " ." behind.
+    result = re.sub(r"\s+([,.;:])", r"\1", result)
     return result.strip()

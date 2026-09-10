@@ -8,8 +8,26 @@ class Config:
     C1_PORT = int(os.environ.get("C1_PORT", "8001"))
     C2_HOST = os.environ.get("C2_HOST", "127.0.0.1")
     C2_PORT = int(os.environ.get("C2_PORT", "8002"))
+    C3_HOST = os.environ.get("C3_HOST", "127.0.0.1")
+    C3_PORT = int(os.environ.get("C3_PORT", "8003"))
     C4_HOST = os.environ.get("C4_HOST", "127.0.0.1")
     C4_PORT = int(os.environ.get("C4_PORT", "8004"))
+    # C3 is in the D0 path from thread 1.0.16. Set to 0 to reproduce the
+    # pre-C3 baseline on this same build -- the same reversibility posture
+    # C2_RETRIEVAL_ENABLED takes, and for the same reason: "before C3" and
+    # "after C3" must not be two different commits, or the Bar B
+    # comparison is not like-for-like.
+    C3_ENABLED = os.environ.get("C5_C3_ENABLED", "1") == "1"
+    # Silence observed since the utterance ended, handed to C3 as its
+    # opportunity signal. At D0 the loop is sequential and prompt-driven,
+    # so there is no real inter-utterance silence to measure: this is the
+    # value C5 reports, and it is a CONFIGURED STAND-IN, not a
+    # measurement. Wiring C1's endpointer to report the true gap is
+    # carried in BACKLOG.md.
+    C3_ASSUMED_GAP_S = float(os.environ.get("C5_C3_ASSUMED_GAP_S", "2.0"))
+    # Generous: C3's own call to C2 is an Ollama generate, and C3's
+    # default conflict-check timeout is 60 s.
+    C3_OBSERVE_TIMEOUT_S = float(os.environ.get("C5_C3_OBSERVE_TIMEOUT_S", "90"))
     TURN_COUNT = int(os.environ.get("C5_TURN_COUNT", "10"))
     # DR-032: the caller declares the corpus it is asking about. Same env
     # var C2 reads, so a divergence is a misconfiguration of one variable
@@ -31,6 +49,10 @@ class Config:
     @property
     def c2_base_url(self) -> str:
         return f"http://{self.C2_HOST}:{self.C2_PORT}"
+
+    @property
+    def c3_base_url(self) -> str:
+        return f"http://{self.C3_HOST}:{self.C3_PORT}"
 
     @property
     def c4_base_url(self) -> str:

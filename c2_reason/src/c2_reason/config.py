@@ -54,6 +54,15 @@ class Config:
     CORPUS_ID = os.environ.get("C2_CORPUS_ID", "dhi")
     RETRIEVAL_TOP_K = int(os.environ.get("C2_RETRIEVAL_TOP_K", "3"))
 
+    # --- conflict_check gate (thread 1.0.16, DR-043(e)(i)) -------------
+    # Separate from MAX_TOKENS on purpose. MAX_TOKENS (40) is the SPOKEN
+    # reply cap and is a measured figure in DR-020/DR-038 -- raising it
+    # would silently change the Bar B baseline. The conflict gate's reply
+    # is a two-line structured form ("CONFLICT: <sentence>" + "SOURCE:
+    # <file>"), and a cap that truncates the SOURCE line turns a valid
+    # conflict into a rejected one, so it gets its own, larger value.
+    CONFLICT_MAX_TOKENS = int(os.environ.get("C2_CONFLICT_MAX_TOKENS", "120"))
+
     @classmethod
     def require_retrieval_settings(cls) -> None:
         """Only enforced when retrieval is switched ON, so the

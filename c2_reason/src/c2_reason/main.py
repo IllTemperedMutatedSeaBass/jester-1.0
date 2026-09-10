@@ -38,11 +38,13 @@ from .prompt import (
     PromptOverflowError,
     estimate_tokens,
 )
+from .conflict import build_conflict_prompt, parse_conflict_reply
 from .retrieval import (
     ChromaRetriever,
     NullRetriever,
     RetrievalRequest,
     format_evidence,
+    INTENT_CONFLICT_CHECK,
     INTENT_QUESTION_ANSWERING,
     MODE_MEETING_SPOKEN,
 )
@@ -311,6 +313,147 @@ def respond(req: RespondRequest) -> RespondResponse:
         model_digest=config.OLLAMA_MODEL_DIGEST,
         retrieved_chunks=retrieval_result.total_chunks,
         evidence_tokens_est=evidence_tokens_est,
+    )
+
+
+class ConflictCheckRequest(BaseModel):
+    turn_id: str
+    # The line to check -- the utterance that just completed.
+    utterance: str
+    # Recent transcript for context. C3 sends a bounded window, not the
+    # whole meeting: see the endpoint docstring.
+    transcript: str = ""
+    corpus_id: str | None = None
+    mode: str = MODE_MEETING_SPOKEN
+
+
+class ConflictCheckResponse(BaseModel):
+    turn_id: str
+    conflict: bool
+    # Present only when conflict is True. Structured, never prose --
+    # DR-044's citation must reach speech as prose composed by C3's merge
+    # step, not as a pre-formatted string carrying a bracket marker.
+    utterance: str | None = None
+    conflicts_with: str | None = None
+    source: str | None = None
+    authority: str | None = None
+    tier: str | None = None
+    retrieved_chunks: int = 0
+    unified_corpus: bool = False
+    rejected_reason: str = ""
+    model: str = ""
+    model_digest: str = ""
+
+
+@app.post("/conflict_check", response_model=ConflictCheckResponse)
+def conflict_check(req: ConflictCheckRequest) -> ConflictCheckResponse:
+    """DR-043(e)(i)'s reasoning gate. Called by C3, never by C5 directly.
+
+    DELIBERATELY SEPARATE FROM `/respond`, for two reasons that are easy to
+    undo by accident:
+
+      1. `prompt_builder` IS PROCESS-LEVEL AND ACCUMULATING. `/respond`
+         appends every turn to it so G1's prefix reuse is exercised call
+         over call. If this endpoint appended to it too, the meeting
+         transcript would gain lines nobody said, and every Bar B figure
+         measured against that prefix would be measuring a different
+         prompt. This handler builds a STANDALONE prompt and touches
+         `prompt_builder` not at all.
+
+      2. `/respond`'s stage-boundary logging is Bar B's decomposition and
+         is anchored precisely (see the module docstring -- moving
+         retrieval relative to `prefill_start` silently mis-attributes its
+         cost). Adding a second code path through the same handler would
+         put non-Bar-B turns into the same event stream. This endpoint
+         emits its OWN event names, so `decompose_turn` cannot pick them
+         up and the Bar B sample stays exactly the turns C5 drove.
+
+    SAME MODEL AS `/respond`, deliberately (`config.OLLAMA_MODEL`). That is
+    the point of putting the judgement at C2 at all: no model swap, so no
+    Ollama reload between a conflict check and the next spoken reply. See
+    `conflict.py`'s docstring for the full reasoning and for the incorrect
+    UMA-carve claim that must not be inherited.
+    """
+    turn_id = req.turn_id
+    log_event("C2", "conflict_check_start", turn_id)
+
+    retrieval_result = retriever.retrieve(
+        RetrievalRequest(
+            corpus_id=req.corpus_id or config.CORPUS_ID,
+            mode=req.mode,
+            query=req.utterance,
+            intent=INTENT_CONFLICT_CHECK,
+            top_k=config.RETRIEVAL_TOP_K,
+        )
+    )
+    evidence = format_evidence(retrieval_result)
+    log_event(
+        "C2",
+        "conflict_check_retrieved",
+        turn_id,
+        chunks_by_path=retrieval_result.counts(),
+        chunks_total=retrieval_result.total_chunks,
+        unified_corpus=retrieval_result.unified_corpus,
+        embed_s=retrieval_result.embed_s,
+        query_s=retrieval_result.query_s,
+    )
+
+    # Nothing retrieved means nothing to contradict. Returning early skips
+    # a model call that could only invent -- the failure mode the prompt is
+    # written against.
+    if retrieval_result.total_chunks == 0:
+        log_event("C2", "conflict_check_done", turn_id, conflict=False,
+                  reason="no chunks retrieved")
+        return ConflictCheckResponse(
+            turn_id=turn_id, conflict=False, retrieved_chunks=0,
+            unified_corpus=retrieval_result.unified_corpus,
+            rejected_reason="no chunks retrieved",
+            model=config.OLLAMA_MODEL, model_digest=config.OLLAMA_MODEL_DIGEST,
+        )
+
+    prompt = build_conflict_prompt(req.transcript, req.utterance, evidence)
+    result = generate(config, prompt, max_tokens=config.CONFLICT_MAX_TOKENS)
+    outcome = parse_conflict_reply(
+        result.get("response", ""), retrieval_result, req.utterance, turn_id
+    )
+
+    log_event(
+        "C2",
+        "conflict_check_done",
+        turn_id,
+        conflict=outcome.conflict,
+        rejected_reason=outcome.rejected_reason,
+        sources_offered=outcome.sources_offered,
+        source=outcome.candidate.source if outcome.candidate else None,
+        authority=outcome.candidate.authority if outcome.candidate else None,
+        eval_count=result.get("eval_count"),
+        prompt_eval_count=result.get("prompt_eval_count"),
+        model=config.OLLAMA_MODEL,
+        model_digest=config.OLLAMA_MODEL_DIGEST,
+    )
+
+    if not outcome.conflict:
+        return ConflictCheckResponse(
+            turn_id=turn_id, conflict=False,
+            retrieved_chunks=retrieval_result.total_chunks,
+            unified_corpus=retrieval_result.unified_corpus,
+            rejected_reason=outcome.rejected_reason,
+            model=config.OLLAMA_MODEL, model_digest=config.OLLAMA_MODEL_DIGEST,
+        )
+
+    candidate = outcome.candidate
+    return ConflictCheckResponse(
+        turn_id=turn_id,
+        conflict=True,
+        utterance=candidate.utterance,
+        conflicts_with=candidate.conflicts_with,
+        source=candidate.source,
+        authority=candidate.authority,
+        tier=candidate.tier,
+        retrieved_chunks=retrieval_result.total_chunks,
+        unified_corpus=retrieval_result.unified_corpus,
+        model=config.OLLAMA_MODEL,
+        model_digest=config.OLLAMA_MODEL_DIGEST,
     )
 
 

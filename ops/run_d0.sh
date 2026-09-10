@@ -1,12 +1,24 @@
 #!/usr/bin/env bash
-# One command runs the D0 loop: headset -> C1 -> C5 -> C2 -> C4 -> headset.
-# Starts C1 and C4 (HTTP services) in the foreground process group, waits
-# for both to report healthy, then runs C5's turn loop. No systemd, no
-# manual step between components (DR-017 Bar A items 1, 5; Bar C: no
-# systemd units at D0).
+# One command runs the D0 loop:
+#   headset -> C1 -> C5 -> C2 -> C4 -> headset, then C5 -> C3.
+# Starts C1, C2, C3 and C4 (HTTP services) in the foreground process group,
+# waits for all of them to report healthy, then runs C5's turn loop. No
+# systemd, no manual step between components (DR-017 Bar A items 1, 5;
+# Bar C: no systemd units at D0).
 #
-# C3 is NOT started here -- it is not wired into the D0 loop this session
-# (thread-1.0.6 ruling): the path is C1 -> C5 -> C2 -> C4 only.
+# C3 IS STARTED HERE, from thread 1.0.16. This header previously read "C3
+# is NOT started here -- it is not wired into the D0 loop this session
+# (thread-1.0.6 ruling): the path is C1 -> C5 -> C2 -> C4 only." That
+# ruling is superseded: C3 is the interjection gate (DR-042 budget and
+# batching, DR-043 conflict_check, DR-044 form, DR-006 etiquette) and C5
+# calls it after each completed utterance.
+#
+# To reproduce the pre-C3 baseline on this same build, set
+# C5_C3_ENABLED=0 in .env -- C3 still starts, C5 simply does not call it.
+# NOTE that setting it on the command line does NOT work: this script
+# sources .env with `set -a` AFTER the shell environment is inherited, so
+# .env silently WINS over both an inline `VAR=x ops/run_d0.sh` prefix and
+# an exported variable. Change .env, or pass a CLI flag that C5 parses.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -24,6 +36,7 @@ fi
 
 C1_PORT="${C1_PORT:-8001}"
 C2_PORT="${C2_PORT:-8002}"
+C3_PORT="${C3_PORT:-8003}"
 C4_PORT="${C4_PORT:-8004}"
 
 # Each invocation gets its own timestamped directory (DR-027) -- logs used
@@ -67,11 +80,14 @@ wait_healthy() {
 PIDS+=("$!")
 "${REPO_ROOT}/c2_reason/.venv/bin/python" -m c2_reason.main 2>"${LOG_DIR}/c2.jsonl" &
 PIDS+=("$!")
+"${REPO_ROOT}/c3_router/.venv/bin/python" -m c3_router.main 2>"${LOG_DIR}/c3.jsonl" &
+PIDS+=("$!")
 "${REPO_ROOT}/c4_speech/.venv/bin/python" -m c4_speech.main 2>"${LOG_DIR}/c4.jsonl" &
 PIDS+=("$!")
 
 wait_healthy "http://${C1_HOST:-127.0.0.1}:${C1_PORT}" "C1"
 wait_healthy "http://${C2_HOST:-127.0.0.1}:${C2_PORT}" "C2"
+wait_healthy "http://${C3_HOST:-127.0.0.1}:${C3_PORT}" "C3"
 wait_healthy "http://${C4_HOST:-127.0.0.1}:${C4_PORT}" "C4"
 
 "${REPO_ROOT}/c5_orchestrator/.venv/bin/python" -m c5_orchestrator.main "$@" 2>"${LOG_DIR}/c5.jsonl"

@@ -46,6 +46,38 @@ The per-path results are kept separate all the way through
 evidence block for the prompt, which is not a violation: DR-008 forbids a
 blended INDEX and blended retrieval paths, and every chunk here still
 carries the tier it was retrieved from.
+
+DR-043 -- THE TIER PARTITION IS REMOVED AS A CONTROL ON TRIGGER AUTHORITY.
+Everything above still describes the `question_answering` intent exactly as
+DR-035 built it, and that path is UNCHANGED. DR-043 adds a second intent,
+`conflict_check`, for the C3 trigger path, and it is different in one
+specific way: it queries ALL FOUR collections unconditionally and lets any
+of them contribute a candidate. There is no Tier-1-must-fire-first
+condition on it.
+
+Why that is not simply a reversal of DR-008: DR-008's measured finding was
+about RETRIEVAL-AS-TRIGGER -- a cosine threshold standing in for a
+judgement, which in 2.x flipped 4 of 6 correctly-Absent records because a
+nearest-neighbour chunk always exists. Under DR-043 retrieval no longer
+decides anything on this path. It ASSEMBLES EVIDENCE; a reasoning gate at
+C2 decides whether a real contradiction exists, and DR-042's rate ceiling
+is the hard backstop. DR-043(e) records honestly that this swap is an
+argument and not a measurement, and that DR-045's scored run is the first
+evidence either way.
+
+The collections are still separate and results are still kept per-path,
+because DR-043(d) needs the tier: authority weight is DERIVED FROM IT at
+read time (see `AUTHORITY_BY_PATH`). "One corpus" in DR-043(c) means one
+query set with no tier-based trigger gate -- it does not mean one blended
+index, and no re-ingest happens here.
+
+DR-043(d) HONESTY NOTE, mirrored from the DR so the code is readable
+without it: chunks do NOT carry a licence flag today. `ingest/run.py`
+writes `source_path`, `tier`, `tier_evidence`, `chunk_index`,
+`embedding_model`, `embedding_model_digest` and nothing else. Authority is
+derived from `tier`; licence is NOT derivable and needs a re-ingest, which
+is carried in `BACKLOG.md`. Do not read `AUTHORITY_BY_PATH` as evidence
+that the licence half of DR-043(d) is built. It is not.
 """
 from __future__ import annotations
 
@@ -62,14 +94,60 @@ from .ingest import store
 MODE_MEETING_SPOKEN = "meeting_spoken"
 MODE_CHAT = "chat"
 
-# Question-answering is the only retrieval intent this session builds
-# (thread 1.0.14 scope: no trigger logic, no unprompted speech).
+# DR-035's question-answering intent: a human asked, Jester answers.
 INTENT_QUESTION_ANSWERING = "question_answering"
+
+# DR-043(f)'s trigger-side intent: Jester decided on its own to look.
+# A NEW NAME rather than reusing `question_answering` -- recorded in DR-043
+# as a PREFERENCE, not a necessity. Reusing the existing intent would work
+# mechanically; the reason not to is that DR-045's scoring must be able to
+# tell "a human asked and Jester answered" from "Jester decided on its own
+# to look", and one shared intent name makes those indistinguishable in
+# exactly the logs that become the evaluation set.
+INTENT_CONFLICT_CHECK = "conflict_check"
+
+SUPPORTED_INTENTS = (INTENT_QUESTION_ANSWERING, INTENT_CONFLICT_CHECK)
 
 PATH_TIER1 = "tier1"
 PATH_UNASSIGNED = "unassigned"
 PATH_TIER2A = "tier2a"
 PATH_TIER2B = "tier2b"
+
+# DR-043(d) AUTHORITY, DERIVED FROM TIER AT READ TIME. "A company policy
+# binds; a standard is advisory" -- and this is a property Jester STATES
+# WHEN IT SPEAKS (DR-044 requires every flag to name the authority of what
+# it conflicts with), never a gate on whether it may notice.
+#
+# Derived rather than stored because DR-031 already made `tier` a
+# per-document PROVENANCE/AUTHORITY judgement -- "is this an instrument of
+# THIS COMPANY'S OWN governance, or does it carry general legal/normative
+# force without being company-specific" -- so authority is precisely what
+# the tier field was standing in for. Deriving it needs no re-ingest.
+#
+# UNASSIGNED is "unlabelled", NOT "advisory": DR-034 left 41 of 46
+# documents unassigned, and calling those advisory would be asserting a
+# judgement nobody made. DR-043(g) keeps re-tiering on the backlog for
+# exactly this reason -- the skew stopped being a C3 blocker, it did not
+# stop mattering.
+AUTHORITY_BINDING = "binding"
+AUTHORITY_ADVISORY = "advisory"
+AUTHORITY_UNLABELLED = "unlabelled"
+
+AUTHORITY_BY_PATH = {
+    PATH_TIER1: AUTHORITY_BINDING,
+    PATH_TIER2A: AUTHORITY_ADVISORY,
+    PATH_TIER2B: AUTHORITY_ADVISORY,
+    PATH_UNASSIGNED: AUTHORITY_UNLABELLED,
+}
+
+# Spoken-language rendering of the above, for DR-044's "name the authority
+# of that source" requirement. C4 speaks these, so they are phrases a
+# person would say, not enum values.
+AUTHORITY_PHRASE = {
+    AUTHORITY_BINDING: "binding company policy",
+    AUTHORITY_ADVISORY: "an advisory standard",
+    AUTHORITY_UNLABELLED: "a source whose authority is not yet labelled",
+}
 
 
 class RetrievalConfigError(RuntimeError):
@@ -114,6 +192,10 @@ class RetrievalResult:
     embed_s: float = 0.0
     query_s: float = 0.0
     tier2_consulted: bool = False
+    # True when this result came from DR-043(c)'s unified-corpus trigger
+    # path. Logged, so a scored run (DR-045) can tell which retrieval
+    # regime produced a candidate without inferring it from the intent.
+    unified_corpus: bool = False
 
     @property
     def total_chunks(self) -> int:
@@ -181,11 +263,14 @@ class ChromaRetriever:
                 f"(supported: {list(self._supported_modes)}). DR-032 shapes "
                 f"the interface for a second caller; it does not build one."
             )
-        if request.intent != INTENT_QUESTION_ANSWERING:
+        if request.intent not in SUPPORTED_INTENTS:
+            # Still fails loudly on an unknown intent (DR-020). DR-043(f)
+            # widens WHICH intents are accepted; it does not remove the
+            # refusal. A typo'd intent must not quietly retrieve nothing
+            # and read as "no conflict found".
             raise UnsupportedModeError(
-                f"intent {request.intent!r} is not implemented. Thread "
-                f"1.0.14 builds question-answering only -- no trigger "
-                f"logic, no unprompted speech."
+                f"intent {request.intent!r} is not implemented "
+                f"(supported: {list(SUPPORTED_INTENTS)})."
             )
 
     def _query_path(
@@ -227,6 +312,35 @@ class ChromaRetriever:
 
         query_start = time.monotonic()
 
+        if request.intent == INTENT_CONFLICT_CHECK:
+            # DR-043(c) -- ONE CORPUS FOR TRIGGER EVALUATION.
+            #
+            # All four collections are queried unconditionally. There is no
+            # "Tier 1 must fire first" precondition, because that
+            # precondition IS the partition DR-043 removes: it is what makes
+            # a conflict BETWEEN a company instrument and an external
+            # obligation unreachable (DR-043(b) -- the insight lives in the
+            # join between documents).
+            #
+            # Note what has NOT changed: four separate collections, four
+            # separate queries, results kept per-path. DR-043(c) removes a
+            # TRIGGER GATE, not the separation -- the tier is still needed
+            # on every chunk to derive authority for DR-044's spoken
+            # citation.
+            for path in (PATH_TIER1, PATH_TIER2A, PATH_TIER2B, PATH_UNASSIGNED):
+                result.by_path[path] = self._query_path(
+                    query_vector, path, request.top_k
+                )
+            # Recorded as consulted-unconditionally rather than left False:
+            # on this path `tier2_consulted` no longer means "Tier 1 flagged
+            # something first", and a reader of the logs must not be able to
+            # mistake it for that.
+            result.tier2_consulted = True
+            result.unified_corpus = True
+            result.query_s = time.monotonic() - query_start
+            return result
+
+        # ---- DR-035's question-answering path, UNCHANGED by DR-043 -------
         # PATH 1 -- Tier 1. Its own query, its own collection.
         result.by_path[PATH_TIER1] = self._query_path(
             query_vector, PATH_TIER1, request.top_k
