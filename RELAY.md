@@ -2804,3 +2804,56 @@ evaluation data would corrupt the evaluation.
 
 This entry is an append; no prior entry above is edited, per the append-only rule for
 this file.
+
+### Proof-of-push addendum 2 — thread 1.0.16 follow-up commits (appended)
+
+Two further commits were pushed after the first addendum, closing two gaps
+found on review. Their hashes were read from `origin` after the commits
+existed, per the same rule; nothing here was typed as a placeholder.
+
+**FIRST STATEMENT.** Commit 57898b361769b1245a2b7e0b96e0e801deb2a535 is on
+origin/main. It was read after an independent `git fetch origin`, checking the
+`origin/main` ref with `git rev-parse origin/main`, and cross-checked against
+the remote with `git ls-remote origin refs/heads/main`, which returned the same
+40-character hash.
+
+**SECOND STATEMENT.** After a further independent `git fetch origin --prune`,
+`git rev-parse origin/main` again returned
+57898b361769b1245a2b7e0b96e0e801deb2a535 and `git ls-remote origin
+refs/heads/main` again returned that same hash against `refs/heads/main`.
+
+That commit carries the **HANDOVER block** (which the STOP report referenced
+and had not contained) and two fixes to `ops/score_run.py`. The intermediate
+commit 101f6348916a4959512ed8c195f7425f90eab688 is on origin/main and carries
+the first proof-of-push addendum and the MANUAL STEPS block.
+
+**Two defects worth recording, because both were found by USING the tool
+rather than by reading it.** `ops/score_run.py` had never been executed against
+real data — no test touched it, and neither smoke path wrote candidate events
+to disk (Part A runs in-process, Part B calls `/conflict_check` directly and
+bypasses C3). Driving a live C3 through `/observe` to produce a genuine
+`c3.jsonl` surfaced: (1) a candidate suppressed by the DR-042 budget and then
+expiring reported **only** "expired", losing exactly the budget evidence
+DR-045 needs — now counted separately; and (2) a Ctrl-D during scoring
+discarded the entire pass, which on a one-shot spoken run means re-listening
+to a meeting that cannot be replayed — now the scored file keeps what was
+marked and records whether the pass completed. The cross-turn reconstruction
+(a candidate raised on one turn, spoken in a batch on a later one) was
+verified correct.
+
+**This is the same class of finding as the fabricated-hash corrections in
+threads 1.0.14 and 1.0.15**: something that looked finished because it had been
+written carefully, and was not, because it had never been run. `ops/score_run.py`
+is now the only piece of this thread's work whose failure would be discovered
+*after* the irreplaceable data was gathered, which is why it was worth the
+extra pass.
+
+**Updated MANUAL STEPS delta.** No new files beyond those already listed;
+`ops/score_run.py` and `RELAY.md` are changed again and need re-syncing. The
+earlier MANUAL STEPS block otherwise stands.
+
+**The closing request stands: please re-sync BOTH repos and the Claude.ai
+project contents before the next thread begins.**
+
+This entry is an append; no prior entry above is edited, per the append-only rule for
+this file.
